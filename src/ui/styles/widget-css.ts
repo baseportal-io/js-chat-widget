@@ -464,6 +464,12 @@ export default `#baseportal-chat-widget {
   transition: background var(--bp-transition);
 }
 
+.bp-convlist__new-btn svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
 .bp-convlist__new-btn:hover {
   background: rgba(99, 102, 241, 0.15);
 }
@@ -550,11 +556,15 @@ export default `#baseportal-chat-widget {
 
 /* ===== Closed conversation banner ===== */
 .bp-closed-banner {
-  padding: 12px 16px;
+  padding: 14px 16px;
   border-top: 1px solid var(--bp-gray-200);
-  text-align: center;
   background: var(--bp-gray-50);
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex-wrap: wrap;
 }
 
 .bp-closed-banner__text {
@@ -563,22 +573,20 @@ export default `#baseportal-chat-widget {
 }
 
 .bp-closed-banner__reopen {
-  display: inline-block;
-  margin-top: 8px;
-  padding: 6px 16px;
-  border-radius: var(--bp-radius-sm);
-  background: var(--bp-primary);
-  color: var(--bp-primary-contrast);
+  background: none;
   border: none;
+  padding: 0;
   font-size: 13px;
   font-weight: 500;
   font-family: inherit;
+  color: var(--bp-primary);
   cursor: pointer;
-  transition: opacity var(--bp-transition);
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 .bp-closed-banner__reopen:hover {
-  opacity: 0.9;
+  opacity: 0.8;
 }
 
 /* ===== Privacy footer ===== */
