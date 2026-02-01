@@ -64,6 +64,10 @@ export class ApiClient {
     })
   }
 
+  async getConversation(conversationId: string): Promise<Conversation> {
+    return this.request('GET', `/conversations/${conversationId}`)
+  }
+
   async getMessages(
     conversationId: string,
     params?: { limit?: number; page?: number }

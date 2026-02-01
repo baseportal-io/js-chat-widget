@@ -100,11 +100,22 @@ export function ChatWindow({
 
           if (storedId) {
             try {
-              const msgs = await apiClient.getMessages(storedId, { limit: 50 })
-              setMessages(Array.isArray(msgs) ? msgs.reverse() : [])
-              setConversation({ id: storedId, open: true } as Conversation)
-              setView('chat')
-              connectRealtime(storedId)
+              const conv = await apiClient.getConversation(storedId)
+              if (!conv.open) {
+                // Conversation is closed, clear and start fresh
+                storage.clear()
+                if (needsPreChat()) {
+                  setView('prechat')
+                } else {
+                  await startNewConversation()
+                }
+              } else {
+                const msgs = await apiClient.getMessages(storedId, { limit: 50 })
+                setMessages(Array.isArray(msgs) ? msgs.reverse() : [])
+                setConversation(conv)
+                setView('chat')
+                connectRealtime(storedId)
+              }
             } catch {
               storage.clear()
               if (needsPreChat()) {
