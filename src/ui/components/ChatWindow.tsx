@@ -101,19 +101,11 @@ export function ChatWindow({
           if (storedId) {
             try {
               const conv = await apiClient.getConversation(storedId)
-              if (!conv.open) {
-                // Conversation is closed, clear and start fresh
-                storage.clear()
-                if (needsPreChat()) {
-                  setView('prechat')
-                } else {
-                  await startNewConversation()
-                }
-              } else {
-                const msgs = await apiClient.getMessages(storedId, { limit: 50 })
-                setMessages(Array.isArray(msgs) ? msgs.reverse() : [])
-                setConversation(conv)
-                setView('chat')
+              const msgs = await apiClient.getMessages(storedId, { limit: 50 })
+              setMessages(Array.isArray(msgs) ? msgs.reverse() : [])
+              setConversation(conv)
+              setView('chat')
+              if (conv.open) {
                 connectRealtime(storedId)
               }
             } catch {
@@ -178,24 +170,6 @@ export function ChatWindow({
           )
           if (!conv.open) {
             events.emit('conversation:closed', conv)
-            // Reset widget so user can start a new conversation
-            setTimeout(() => {
-              realtimeClient.unsubscribe()
-              storage.clear()
-              setConversation(null)
-              setMessages([])
-              if (allowViewHistory) {
-                apiClient
-                  .getVisitorConversations()
-                  .then(setConversations)
-                  .catch(() => {})
-                setView('conversations')
-              } else if (needsPreChat()) {
-                setView('prechat')
-              } else {
-                startNewConversationRef.current()
-              }
-            }, 2000)
           }
         },
       })
@@ -353,6 +327,21 @@ export function ChatWindow({
     }
   }, [inputValue, uploadedFileId, conversation, sending, apiClient, events, realtimeClient, storage, allowViewHistory, needsPreChat])
 
+  const handleNewConversation = useCallback(async () => {
+    realtimeClient.unsubscribe()
+    storage.clear()
+    setConversation(null)
+    setMessages([])
+    if (allowViewHistory) {
+      apiClient.getVisitorConversations().then(setConversations).catch(() => {})
+      setView('conversations')
+    } else if (needsPreChat()) {
+      setView('prechat')
+    } else {
+      await startNewConversationRef.current()
+    }
+  }, [realtimeClient, storage, allowViewHistory, apiClient, needsPreChat])
+
   const handleReopen = useCallback(async () => {
     if (!conversation) return
     try {
@@ -453,9 +442,13 @@ export function ChatWindow({
               ) : (
                 <div class="bp-closed-banner">
                   <span class="bp-closed-banner__text">{t.chat.closed}</span>
-                  {channelInfo.config.allowReopenConversation && (
+                  {channelInfo.config.allowReopenConversation ? (
                     <button class="bp-closed-banner__reopen" onClick={handleReopen}>
                       {t.chat.reopen}
+                    </button>
+                  ) : (
+                    <button class="bp-closed-banner__reopen" onClick={handleNewConversation}>
+                      {t.chat.newConversation}
                     </button>
                   )}
                 </div>

@@ -15,6 +15,7 @@ export interface Translations {
     placeholder: string
     closed: string
     reopen: string
+    newConversation: string
     attachFile: string
     uploading: string
     fileTooLarge: string
@@ -47,6 +48,7 @@ const pt: Translations = {
     placeholder: 'Digite uma mensagem...',
     closed: 'Esta conversa foi encerrada.',
     reopen: 'Reabrir conversa',
+    newConversation: 'Nova conversa',
     attachFile: 'Anexar arquivo',
     uploading: 'Enviando...',
     fileTooLarge: 'Arquivo muito grande (máx. 25MB)',
@@ -79,6 +81,7 @@ const en: Translations = {
     placeholder: 'Type a message...',
     closed: 'This conversation has been closed.',
     reopen: 'Reopen conversation',
+    newConversation: 'New conversation',
     attachFile: 'Attach file',
     uploading: 'Uploading...',
     fileTooLarge: 'File too large (max 25MB)',
@@ -111,6 +114,7 @@ const es: Translations = {
     placeholder: 'Escribe un mensaje...',
     closed: 'Esta conversación ha sido cerrada.',
     reopen: 'Reabrir conversación',
+    newConversation: 'Nueva conversación',
     attachFile: 'Adjuntar archivo',
     uploading: 'Subiendo...',
     fileTooLarge: 'Archivo demasiado grande (máx. 25MB)',
