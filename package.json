@@ -1,6 +1,6 @@
 {
   "name": "@baseportal/chat-widget",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Embeddable chat widget for Baseportal",
   "main": "dist/index.cjs.js",
   "module": "dist/index.esm.js",

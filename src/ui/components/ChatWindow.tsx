@@ -1,6 +1,6 @@
 /** @jsxImportSource preact */
 
-import { useCallback, useEffect, useState } from 'preact/hooks'
+import { useCallback, useEffect, useRef, useState } from 'preact/hooks'
 
 import type { ApiClient } from '../../api/client'
 import type {
@@ -62,6 +62,9 @@ export function ChatWindow({
   const isOpen = conversation?.open !== false
 
   const allowViewHistory = channelInfo.config.allowViewHistory && isAuthenticated
+
+  // Ref to break circular dependency between connectRealtime and startNewConversation
+  const startNewConversationRef = useRef<() => Promise<void>>(async () => {})
 
   // Determine initial view
   useEffect(() => {
@@ -164,11 +167,29 @@ export function ChatWindow({
           )
           if (!conv.open) {
             events.emit('conversation:closed', conv)
+            // Reset widget so user can start a new conversation
+            setTimeout(() => {
+              realtimeClient.unsubscribe()
+              storage.clear()
+              setConversation(null)
+              setMessages([])
+              if (allowViewHistory) {
+                apiClient
+                  .getVisitorConversations()
+                  .then(setConversations)
+                  .catch(() => {})
+                setView('conversations')
+              } else if (needsPreChat()) {
+                setView('prechat')
+              } else {
+                startNewConversationRef.current()
+              }
+            }, 2000)
           }
         },
       })
     },
-    [realtimeClient, events]
+    [realtimeClient, events, storage, allowViewHistory, apiClient, needsPreChat]
   )
 
   const openConversation = useCallback(
@@ -209,6 +230,8 @@ export function ChatWindow({
       setLoading(false)
     }
   }, [apiClient, visitor, storage, connectRealtime, events])
+
+  startNewConversationRef.current = startNewConversation
 
   const handlePreChatSubmit = useCallback(
     async (data: { name?: string; email?: string }) => {
@@ -292,11 +315,32 @@ export function ChatWindow({
     } catch (e) {
       console.error('[BaseportalChat] Error sending message:', e)
       setMessages((prev) => prev.filter((m) => m.id !== tempId))
-      setInputValue(content)
+
+      // If conversation no longer exists, reset to allow new conversation
+      const errMsg = e instanceof Error ? e.message : ''
+      if (errMsg.includes('Row not found') || errMsg.includes('404')) {
+        realtimeClient.unsubscribe()
+        storage.clear()
+        setConversation(null)
+        setMessages([])
+        if (allowViewHistory) {
+          apiClient
+            .getVisitorConversations()
+            .then(setConversations)
+            .catch(() => {})
+          setView('conversations')
+        } else if (needsPreChat()) {
+          setView('prechat')
+        } else {
+          await startNewConversationRef.current()
+        }
+      } else {
+        setInputValue(content)
+      }
     } finally {
       setSending(false)
     }
-  }, [inputValue, uploadedFileId, conversation, sending, apiClient, events])
+  }, [inputValue, uploadedFileId, conversation, sending, apiClient, events, realtimeClient, storage, allowViewHistory, needsPreChat])
 
   const handleReopen = useCallback(async () => {
     if (!conversation) return
