@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Baseportal Chat Widget Test</title>
+  <style>
+    body { font-family: sans-serif; padding: 40px; max-width: 800px; margin: 0 auto; }
+    h1 { color: #333; }
+    .controls { margin: 20px 0; display: flex; gap: 10px; flex-wrap: wrap; }
+    button { padding: 8px 16px; border: 1px solid #ccc; border-radius: 6px; cursor: pointer; background: #fff; }
+    button:hover { background: #f5f5f5; }
+    input { padding: 8px; border: 1px solid #ccc; border-radius: 6px; width: 300px; }
+    .section { margin: 24px 0; padding: 16px; border: 1px solid #e5e5e5; border-radius: 8px; }
+    .section h3 { margin-top: 0; }
+    code { background: #f0f0f0; padding: 2px 6px; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <h1>Baseportal Chat Widget - Test Page</h1>
+
+  <div class="section">
+    <h3>Configuration</h3>
+    <p>Channel Token: <input id="tokenInput" placeholder="ct_xxxxx" /></p>
+    <p>API URL: <input id="apiUrlInput" value="http://localhost:3333" /></p>
+    <button onclick="initWidget()">Initialize Widget</button>
+  </div>
+
+  <div class="section">
+    <h3>Controls</h3>
+    <div class="controls">
+      <button onclick="window.BaseportalChat?.open()">Open</button>
+      <button onclick="window.BaseportalChat?.close()">Close</button>
+      <button onclick="window.BaseportalChat?.toggle()">Toggle</button>
+      <button onclick="window.BaseportalChat?.show()">Show</button>
+      <button onclick="window.BaseportalChat?.hide()">Hide</button>
+      <button onclick="window.BaseportalChat?.destroy()">Destroy</button>
+    </div>
+  </div>
+
+  <div class="section">
+    <h3>Identify (Authenticated Mode)</h3>
+    <p>Email: <input id="emailInput" placeholder="user@example.com" /></p>
+    <p>Name: <input id="nameInput" placeholder="João Silva" /></p>
+    <p>HMAC Hash: <input id="hashInput" placeholder="hmac_sha256_hash" /></p>
+    <button onclick="identifyVisitor()">Identify</button>
+    <button onclick="window.BaseportalChat?.clearVisitor()">Clear Visitor</button>
+  </div>
+
+  <div class="section">
+    <h3>Events Log</h3>
+    <pre id="log" style="max-height: 200px; overflow-y: auto; background: #f9f9f9; padding: 10px; border-radius: 4px; font-size: 13px;"></pre>
+  </div>
+
+  <p style="color: #999; font-size: 13px;">
+    This page tests the IIFE build at <code>dist/baseportal-chat.iife.js</code>.
+    Make sure to run <code>pnpm build</code> first.
+  </p>
+
+  <script src="dist/baseportal-chat.iife.js"></script>
+  <script>
+    function log(msg) {
+      const el = document.getElementById('log')
+      el.textContent += new Date().toLocaleTimeString() + ' - ' + msg + '\n'
+      el.scrollTop = el.scrollHeight
+    }
+
+    function initWidget() {
+      const token = document.getElementById('tokenInput').value
+      const apiUrl = document.getElementById('apiUrlInput').value
+      if (!token) { alert('Enter a channel token'); return }
+
+      if (window.BaseportalChat?.destroy) window.BaseportalChat.destroy()
+
+      window.BaseportalChat = new window.BaseportalChat.constructor || {}
+      window.BaseportalChat = new (window.BaseportalChatSDK || window.BaseportalChat)({
+        channelToken: token,
+        apiUrl: apiUrl || undefined,
+      })
+
+      const events = ['ready', 'open', 'close', 'show', 'hide', 'message:sent', 'message:received', 'identified', 'conversation:started']
+      events.forEach(evt => {
+        window.BaseportalChat.on(evt, (data) => log(evt + ': ' + JSON.stringify(data || '')))
+      })
+
+      log('Widget initialized with token: ' + token)
+    }
+
+    function identifyVisitor() {
+      const email = document.getElementById('emailInput').value
+      const name = document.getElementById('nameInput').value
+      const hash = document.getElementById('hashInput').value
+      if (!email || !hash) { alert('Email and hash are required'); return }
+      window.BaseportalChat?.identify({ email, name, hash })
+      log('identify() called')
+    }
+  </script>
+</body>
+</html>
