@@ -75,9 +75,33 @@ export class ApiClient {
     return this.request('GET', `/conversations/${conversationId}/messages${query}`)
   }
 
+  async uploadFile(conversationId: string, file: File): Promise<{ id: string; url: string; name: string; mimeType: string }> {
+    const formData = new FormData()
+    formData.append('file', file)
+
+    const headers: Record<string, string> = {
+      'x-channel-token': this.channelToken,
+    }
+    if (this.visitorEmail) headers['x-visitor-email'] = this.visitorEmail
+    if (this.visitorHash) headers['x-visitor-hash'] = this.visitorHash
+
+    const res = await fetch(`${this.baseUrl}/conversations/${conversationId}/upload`, {
+      method: 'POST',
+      headers,
+      body: formData,
+    })
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => '')
+      throw new Error(`[BaseportalChat] Upload error ${res.status}: ${text}`)
+    }
+
+    return res.json()
+  }
+
   async sendMessage(
     conversationId: string,
-    data: { content: string }
+    data: { content?: string; mediaId?: string }
   ): Promise<Message> {
     return this.request(
       'POST',

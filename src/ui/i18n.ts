@@ -15,6 +15,10 @@ export interface Translations {
     placeholder: string
     closed: string
     reopen: string
+    attachFile: string
+    uploading: string
+    fileTooLarge: string
+    download: string
   }
   conversations: {
     title: string
@@ -43,6 +47,10 @@ const pt: Translations = {
     placeholder: 'Digite uma mensagem...',
     closed: 'Esta conversa foi encerrada.',
     reopen: 'Reabrir conversa',
+    attachFile: 'Anexar arquivo',
+    uploading: 'Enviando...',
+    fileTooLarge: 'Arquivo muito grande (máx. 25MB)',
+    download: 'Baixar',
   },
   conversations: {
     title: 'Atendimento',
@@ -71,6 +79,10 @@ const en: Translations = {
     placeholder: 'Type a message...',
     closed: 'This conversation has been closed.',
     reopen: 'Reopen conversation',
+    attachFile: 'Attach file',
+    uploading: 'Uploading...',
+    fileTooLarge: 'File too large (max 25MB)',
+    download: 'Download',
   },
   conversations: {
     title: 'Support',
@@ -99,6 +111,10 @@ const es: Translations = {
     placeholder: 'Escribe un mensaje...',
     closed: 'Esta conversación ha sido cerrada.',
     reopen: 'Reabrir conversación',
+    attachFile: 'Adjuntar archivo',
+    uploading: 'Subiendo...',
+    fileTooLarge: 'Archivo demasiado grande (máx. 25MB)',
+    download: 'Descargar',
   },
   conversations: {
     title: 'Atención',

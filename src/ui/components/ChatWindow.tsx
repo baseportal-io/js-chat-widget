@@ -15,7 +15,7 @@ import type { Storage } from '../../utils/storage'
 import { IconArrowLeft, IconX } from '../icons'
 import type { Translations } from '../i18n'
 import { ConversationList } from './ConversationList'
-import { MessageInput } from './MessageInput'
+import { MessageInput, type AttachedFile } from './MessageInput'
 import { MessageList } from './MessageList'
 import { PreChatForm } from './PreChatForm'
 
@@ -55,6 +55,9 @@ export function ChatWindow({
   const [inputValue, setInputValue] = useState('')
   const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
+  const [attachedFile, setAttachedFile] = useState<AttachedFile | null>(null)
+  const [uploadedFileId, setUploadedFileId] = useState<string | null>(null)
+  const [uploading, setUploading] = useState(false)
 
   const isOpen = conversation?.open !== false
 
@@ -221,10 +224,47 @@ export function ChatWindow({
     [apiClient, visitor, storage, connectRealtime, events]
   )
 
-  const handleSend = useCallback(async () => {
-    if (!inputValue.trim() || !conversation || sending) return
+  const handleFileSelect = useCallback(
+    async (file: File) => {
+      if (!conversation) return
 
+      const MAX_SIZE = 25 * 1024 * 1024
+      if (file.size > MAX_SIZE) {
+        console.warn('[BaseportalChat] File too large')
+        return
+      }
+
+      const preview = file.type.startsWith('image/')
+        ? URL.createObjectURL(file)
+        : undefined
+
+      setAttachedFile({ file, preview })
+      setUploading(true)
+
+      try {
+        const uploaded = await apiClient.uploadFile(conversation.id, file)
+        setUploadedFileId(uploaded.id)
+      } catch (e) {
+        console.error('[BaseportalChat] Error uploading file:', e)
+        setAttachedFile(null)
+        if (preview) URL.revokeObjectURL(preview)
+      } finally {
+        setUploading(false)
+      }
+    },
+    [apiClient, conversation]
+  )
+
+  const handleFileRemove = useCallback(() => {
+    if (attachedFile?.preview) URL.revokeObjectURL(attachedFile.preview)
+    setAttachedFile(null)
+    setUploadedFileId(null)
+  }, [attachedFile])
+
+  const handleSend = useCallback(async () => {
     const content = inputValue.trim()
+    if ((!content && !uploadedFileId) || !conversation || sending) return
+
     const tempId = `temp-${Date.now()}`
     const optimistic: Message = {
       id: tempId,
@@ -234,12 +274,19 @@ export function ChatWindow({
       updatedAt: new Date().toISOString(),
     }
 
+    const mediaId = uploadedFileId || undefined
+
     setInputValue('')
+    setAttachedFile(null)
+    setUploadedFileId(null)
     setSending(true)
     setMessages((prev) => [...prev, optimistic])
 
     try {
-      const msg = await apiClient.sendMessage(conversation.id, { content })
+      const msg = await apiClient.sendMessage(conversation.id, {
+        content: content || undefined,
+        mediaId,
+      })
       setMessages((prev) => prev.map((m) => (m.id === tempId ? msg : m)))
       events.emit('message:sent', msg)
     } catch (e) {
@@ -249,7 +296,7 @@ export function ChatWindow({
     } finally {
       setSending(false)
     }
-  }, [inputValue, conversation, sending, apiClient, events])
+  }, [inputValue, uploadedFileId, conversation, sending, apiClient, events])
 
   const handleReopen = useCallback(async () => {
     if (!conversation) return
@@ -334,14 +381,19 @@ export function ChatWindow({
 
           {view === 'chat' && (
             <>
-              <MessageList messages={messages} loading={loading} />
+              <MessageList messages={messages} loading={loading} t={t} />
               {isOpen ? (
                 <MessageInput
                   value={inputValue}
                   onChange={setInputValue}
                   onSend={handleSend}
+                  onFileSelect={handleFileSelect}
+                  onFileRemove={handleFileRemove}
+                  attachedFile={attachedFile}
+                  uploading={uploading}
                   disabled={sending || loading}
                   placeholder={t.chat.placeholder}
+                  t={t}
                 />
               ) : (
                 <div class="bp-closed-banner">

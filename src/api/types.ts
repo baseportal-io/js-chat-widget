@@ -41,6 +41,13 @@ export interface Message {
     url: string
     name: string
     mimeType: string
+    streamUrlData?: {
+      thumbnail?: string
+      small?: string
+      medium?: string
+      large?: string
+    } | null
+    kind?: string
   } | null
 }
 

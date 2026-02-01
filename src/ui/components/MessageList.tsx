@@ -1,16 +1,21 @@
 /** @jsxImportSource preact */
 
-import { useEffect, useRef } from 'preact/hooks'
+import { useEffect, useRef, useState } from 'preact/hooks'
 
 import type { Message } from '../../api/types'
+import type { Translations } from '../i18n'
+import { ImageLightbox } from './ImageLightbox'
+import { MessageMedia } from './MessageMedia'
 
 interface MessageListProps {
   messages: Message[]
   loading: boolean
+  t: Translations
 }
 
-export function MessageList({ messages, loading }: MessageListProps) {
+export function MessageList({ messages, loading, t }: MessageListProps) {
   const endRef = useRef<HTMLDivElement>(null)
+  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null)
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -27,14 +32,33 @@ export function MessageList({ messages, loading }: MessageListProps) {
   return (
     <div class="bp-messages">
       {messages.map((msg) => (
-        <MessageBubble key={msg.id} message={msg} />
+        <MessageBubble
+          key={msg.id}
+          message={msg}
+          onImageClick={setLightboxSrc}
+          t={t}
+        />
       ))}
       <div ref={endRef} />
+      {lightboxSrc && (
+        <ImageLightbox
+          src={lightboxSrc}
+          onClose={() => setLightboxSrc(null)}
+        />
+      )}
     </div>
   )
 }
 
-function MessageBubble({ message }: { message: Message }) {
+function MessageBubble({
+  message,
+  onImageClick,
+  t,
+}: {
+  message: Message
+  onImageClick: (src: string) => void
+  t: Translations
+}) {
   const isClient = message.role === 'client'
   const cls = isClient ? 'bp-msg bp-msg--client' : 'bp-msg bp-msg--agent'
 
@@ -58,7 +82,16 @@ function MessageBubble({ message }: { message: Message }) {
         </div>
       )}
       <div class="bp-msg__body">
-        <div class="bp-msg__content">{message.content}</div>
+        {message.media && (
+          <MessageMedia
+            media={message.media}
+            onImageClick={onImageClick}
+            t={t}
+          />
+        )}
+        {message.content && (
+          <div class="bp-msg__content">{message.content}</div>
+        )}
         <div class="bp-msg__time">{time}</div>
       </div>
     </div>
