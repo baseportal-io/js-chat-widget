@@ -301,24 +301,11 @@ export function ChatWindow({
       console.error('[BaseportalChat] Error sending message:', e)
       setMessages((prev) => prev.filter((m) => m.id !== tempId))
 
-      // If conversation no longer exists, reset to allow new conversation
+      // If conversation is closed or no longer exists, mark as closed
       const errMsg = e instanceof Error ? e.message : ''
       if (errMsg.includes('Row not found') || errMsg.includes('404')) {
         realtimeClient.unsubscribe()
-        storage.clear()
-        setConversation(null)
-        setMessages([])
-        if (allowViewHistory) {
-          apiClient
-            .getVisitorConversations()
-            .then(setConversations)
-            .catch(() => {})
-          setView('conversations')
-        } else if (needsPreChat()) {
-          setView('prechat')
-        } else {
-          await startNewConversationRef.current()
-        }
+        setConversation((prev) => prev ? { ...prev, open: false } : prev)
       } else {
         setInputValue(content)
       }
