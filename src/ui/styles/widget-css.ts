@@ -277,6 +277,39 @@ export default `#baseportal-chat-widget {
   border-bottom-left-radius: 4px;
 }
 
+/* Inline markdown rendered via whatsappToHtml. Keep visual distinction
+ * subtle so it doesn't compete with the bubble color. */
+.bp-msg__content strong { font-weight: 600; }
+.bp-msg__content em { font-style: italic; }
+.bp-msg__content s { text-decoration: line-through; opacity: 0.75; }
+.bp-msg__content code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.9em;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.06);
+}
+.bp-msg__content pre {
+  margin: 6px 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.06);
+  overflow-x: auto;
+}
+.bp-msg__content pre code {
+  background: transparent;
+  padding: 0;
+}
+.bp-msg__content a {
+  color: inherit;
+  text-decoration: underline;
+  word-break: break-all;
+}
+.bp-msg--client .bp-msg__content code,
+.bp-msg--client .bp-msg__content pre {
+  background: rgba(255, 255, 255, 0.18);
+}
+
 .bp-msg__time {
   font-size: 11px;
   color: var(--bp-gray-500);

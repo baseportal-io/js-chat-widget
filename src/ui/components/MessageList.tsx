@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'preact/hooks'
 
 import type { Message } from '../../api/types'
+import { whatsappToHtml } from '../../utils/markdown'
 import type { Translations } from '../i18n'
 import { ImageLightbox } from './ImageLightbox'
 import { MessageMedia } from './MessageMedia'
@@ -90,7 +91,16 @@ function MessageBubble({
           />
         )}
         {message.content && (
-          <div class="bp-msg__content">{message.content}</div>
+          <div
+            class="bp-msg__content"
+            // The agent emits WhatsApp-style markdown (*bold*, _italic_,
+            // etc.). Without this, "_(opcional)_" and "*Cadastrar Cliente*"
+            // render as raw markers. whatsappToHtml escapes the input
+            // first, so injecting HTML through this path is not possible.
+            dangerouslySetInnerHTML={{
+              __html: whatsappToHtml(message.content),
+            }}
+          />
         )}
         <div class="bp-msg__time">{time}</div>
       </div>
