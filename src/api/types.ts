@@ -8,10 +8,13 @@ export interface ChannelInfo {
     allowReopenConversation: boolean
     privacyPolicyUrl: string | null
     /**
-     * Auto-create / sync of Client records on widget start.
-     * When `'off'`, the widget skips the `/identify` call entirely.
+     * True when the channel has client-sync turned on. The widget
+     * uses this purely to decide whether to call `/identify` —
+     * the server keeps the actual mode (create vs createOrUpdate)
+     * private so attackers can't distinguish channels that allow
+     * unverified updates.
      */
-    clientSyncMode: 'off' | 'create' | 'createOrUpdate'
+    identifyEnabled: boolean
     /**
      * Hash algorithm version for identity verification. v2 signs
      * `${subject}:${ts}` (replay-safe); v1 signs just the email

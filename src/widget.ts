@@ -233,7 +233,7 @@ export class BaseportalChat {
     visitor: VisitorData | null
   ): Promise<{ ok: boolean }> {
     if (!this.channelInfo) return { ok: false }
-    if (this.channelInfo.config.clientSyncMode === 'off') return { ok: false }
+    if (!this.channelInfo.config.identifyEnabled) return { ok: false }
     if (!visitor) return { ok: false }
     if (!visitor.email && !visitor.phoneNumber) return { ok: false }
 
