@@ -1,14 +1,19 @@
 import type { ChannelInfo, Conversation, Message } from './types'
 
+// Hard-coded so embedders can't point the widget at a rogue host.
+// If you need to test against a non-production API, change this
+// constant in source and rebuild — there's no SDK-level override.
+const API_BASE = 'https://api.baseportal.io/public/chat'
+
 export class ApiClient {
   private baseUrl: string
   private channelToken: string
   private visitorEmail?: string
   private visitorHash?: string
 
-  constructor(channelToken: string, apiUrl: string) {
+  constructor(channelToken: string) {
     this.channelToken = channelToken
-    this.baseUrl = `${apiUrl}/public/chat`
+    this.baseUrl = API_BASE
   }
 
   setVisitorIdentity(email: string, hash?: string): void {

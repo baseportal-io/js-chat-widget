@@ -37,7 +37,6 @@ const chat = new BaseportalChat({
   channelToken: 'your-channel-token',
 
   // Optional
-  apiUrl: 'https://api.baseportal.io',   // Custom API URL
   position: 'bottom-right',               // 'bottom-right' | 'bottom-left'
   locale: 'pt',                           // 'pt' | 'en' | 'es'
   hideOnLoad: false,                       // Start hidden (no bubble)
@@ -59,7 +58,6 @@ const chat = new BaseportalChat({
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `channelToken` | `string` | — | **(Required)** Channel token from Baseportal dashboard |
-| `apiUrl` | `string` | `https://api.baseportal.io` | API base URL |
 | `position` | `'bottom-right' \| 'bottom-left'` | `'bottom-right'` | Widget position on the page |
 | `locale` | `'pt' \| 'en' \| 'es'` | `'pt'` | UI language |
 | `hideOnLoad` | `boolean` | `false` | If `true`, widget starts hidden (no bubble) |

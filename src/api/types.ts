@@ -83,7 +83,6 @@ export interface VisitorData {
 
 export interface BaseportalChatConfig {
   channelToken: string
-  apiUrl?: string
   position?: 'bottom-right' | 'bottom-left'
   theme?: { primaryColor?: string }
   visitor?: VisitorData

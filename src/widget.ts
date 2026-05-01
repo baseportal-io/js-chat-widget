@@ -6,11 +6,9 @@ import { mount, unmount, updateTheme } from './ui/mount'
 import { EventCallback, EventEmitter } from './utils/events'
 import { Storage } from './utils/storage'
 
-const DEFAULT_API_URL = 'https://api.baseportal.io'
-
 export class BaseportalChat {
   private config: Required<
-    Pick<BaseportalChatConfig, 'channelToken' | 'apiUrl' | 'position' | 'locale'>
+    Pick<BaseportalChatConfig, 'channelToken' | 'position' | 'locale'>
   > &
     BaseportalChatConfig
   private apiClient: ApiClient
@@ -27,7 +25,6 @@ export class BaseportalChat {
   constructor(config: BaseportalChatConfig) {
     this.config = {
       ...config,
-      apiUrl: config.apiUrl || DEFAULT_API_URL,
       position: config.position || 'bottom-right',
       locale: config.locale || 'pt',
     }
@@ -36,10 +33,7 @@ export class BaseportalChat {
     this.visitor = config.visitor || null
     this.isAuthenticated = !!config.visitor?.email
 
-    this.apiClient = new ApiClient(
-      this.config.channelToken,
-      this.config.apiUrl
-    )
+    this.apiClient = new ApiClient(this.config.channelToken)
 
     if (this.isAuthenticated && this.visitor?.email) {
       this.apiClient.setVisitorIdentity(this.visitor.email, this.visitor.hash)
