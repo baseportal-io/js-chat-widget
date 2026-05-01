@@ -54,6 +54,22 @@ export class ApiClient {
     return this.request('GET', '/channel-info')
   }
 
+  /**
+   * Widget-start identity sync. The server creates or updates the
+   * matching Client per the channel's `clientSyncMode` and always
+   * responds `{ ok: true }`. Failures here are non-fatal — the widget
+   * stays usable even if identify fails (e.g. rate-limited / offline).
+   */
+  async identify(data: {
+    email?: string
+    phoneNumber?: string
+    name?: string
+    metadata?: Record<string, unknown>
+    ts?: number
+  }): Promise<{ ok: boolean }> {
+    return this.request('POST', '/identify', data)
+  }
+
   async initConversation(data: {
     name?: string
     email?: string

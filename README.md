@@ -91,10 +91,25 @@ chat.identify({
   metadata: { plan: 'pro' },
 })
 
-// Update visitor data
-chat.updateVisitor({
+// Update visitor data on the server (Promise-returning)
+//
+// For channels with identity verification, generate a fresh `hash`
+// + `ts` server-side per call — v2 signatures are timestamp-bound
+// (±10min window), so reusing the boot-time hash will silently
+// degrade to lookup-only after the window expires.
+//
+// Email is the lookup key and is intentionally not updatable here;
+// to change the email, call `identify()` again.
+const { ok } = await chat.updateVisitor({
   name: 'Jane Doe',
+  phoneNumber: '+5511955554444',
   metadata: { plan: 'enterprise' },
+  hash: 'fresh-hmac-sha256',
+  ts: Date.now(),
+})
+
+chat.on('visitor:updated', (visitor) => {
+  console.log('Server confirmed update:', visitor)
 })
 
 // Clear visitor data and reset
@@ -183,6 +198,7 @@ chat.off('message:received', handler)
 | `conversation:started` | `Conversation` | New conversation created |
 | `conversation:closed` | `Conversation` | Conversation closed by agent |
 | `identified` | `VisitorData` | Visitor identified via `identify()` |
+| `visitor:updated` | `VisitorData` | Server confirmed an `updateVisitor()` sync |
 
 ## Identity Verification
 
@@ -285,6 +301,66 @@ Features are configured per channel in the Baseportal dashboard:
 | `allowReopenConversation` | Allow visitors to reopen closed conversations |
 | `privacyPolicyUrl` | Display a link to your privacy policy |
 | Identity Verification | Enable HMAC verification for visitor identity |
+| `clientSyncMode` | Auto-create / update Client records on widget start (see below) |
+| `syncableFields` | Custom-field allowlist for sync |
+| `syncableStandardFields` | Standard column allowlist for sync (`name`, `phoneNumber`) |
+
+## Auto-create / Sync Clients (Intercom-style)
+
+When the embedding app already authenticates the user, the widget can
+push the visitor's identity to Baseportal on start so a Client record
+is created or updated automatically — no manual onboarding step.
+
+Configure the channel in the dashboard:
+
+- **`clientSyncMode = off`** (default) — widget never calls
+  `/identify`; existing behaviour.
+- **`clientSyncMode = create`** — first time a visitor identifies, a
+  Client is created. Subsequent identifies don't touch the record.
+- **`clientSyncMode = createOrUpdate`** — name / phone / custom
+  fields are merged into the existing Client on every identify.
+
+The lookup key follows the team's auth-field configuration:
+
+1. `Customization.authCustomFieldId` if set (e.g. CPF, member id).
+2. Otherwise email (case-insensitive).
+3. Fallback to phone (digits-only).
+
+### Identity verification (v2)
+
+For any sync mode, you can require an HMAC signature so only your
+authenticated app can create / update Clients. Sign
+`${email}:${ts}` (or `${phoneNumber}:${ts}` for phone-keyed teams)
+with the channel's secret. The timestamp is validated within ±10
+minutes to prevent replay.
+
+```javascript
+// Node.js — generate the v2 signature server-side
+const crypto = require('crypto')
+const ts = Date.now()
+const hash = crypto
+  .createHmac('sha256', 'your-identity-verification-secret')
+  .update(`${userEmail}:${ts}`)
+  .digest('hex')
+```
+
+```typescript
+const chat = new BaseportalChat({
+  channelToken: '...',
+  visitor: {
+    email: 'user@yourapp.com',
+    name: 'Alice Smith',
+    phoneNumber: '+5511999990000',
+    hash: 'server-generated-hmac',
+    ts: 1730000000000,
+    metadata: { plan: 'pro', cpf: '12345678900' },
+  },
+})
+```
+
+The `metadata` object accepts any custom field name configured under
+the team — the API filters against the channel's `syncableFields`
+allowlist before persisting, so unknown keys are silently dropped.
 
 ## Development
 

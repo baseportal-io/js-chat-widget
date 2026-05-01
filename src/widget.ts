@@ -64,6 +64,14 @@ export class BaseportalChat {
     try {
       this.channelInfo = await this.apiClient.getChannelInfo()
 
+      // Fire identify *before* mount so the Client record exists by
+      // the time the visitor sends their first message — keeps the
+      // participant→user binding tight on `getOrCreateChatConversation`.
+      // Fire-and-forget: identify failures are intentionally
+      // non-fatal so a transient API error or rate-limit doesn't
+      // block the widget from rendering.
+      void this.maybeIdentify(this.visitor)
+
       // Apply theme: SDK config > channel theme > default
       const primaryColor =
         this.config.theme?.primaryColor ||
@@ -143,8 +151,10 @@ export class BaseportalChat {
   identify(visitor: {
     email: string
     name?: string
-    hash: string
-    metadata?: Record<string, string>
+    phoneNumber?: string
+    hash?: string
+    ts?: number
+    metadata?: Record<string, unknown>
   }): void {
     this.visitor = visitor
     this.isAuthenticated = true
@@ -153,19 +163,100 @@ export class BaseportalChat {
     this.storage.setVisitor(visitor)
     this.events.emit('identified', visitor)
 
+    // Sync to the API once identity is updated client-side. Same
+    // fire-and-forget contract as the boot path: failures are
+    // logged and dropped, the chat keeps working either way.
+    void this.maybeIdentify(visitor)
+
     // Remount with new state
     if (this.mounted) {
       this.remount()
     }
   }
 
-  updateVisitor(data: {
+  /**
+   * Push updated visitor data to the server. Use this from the
+   * embedding app whenever the user's name / phone / custom fields
+   * change so the Baseportal Client record stays in sync.
+   *
+   * For channels with `clientSyncRequiresVerification = true`,
+   * generate a fresh `hash` + `ts` server-side per call — v2
+   * signatures bind to the timestamp and only stay valid ±10min,
+   * so reusing the original `identify()` hash will silently fall
+   * through to lookup-only after the window expires.
+   *
+   * Email is the lookup key and is intentionally NOT updatable here;
+   * if the email itself changes, call `identify()` to re-bind.
+   *
+   * Returns `{ ok: boolean }` so the embedder can surface failures
+   * to the user. Resolves `{ ok: false }` and emits no event when:
+   *   - sync mode is `off`
+   *   - the visitor has no email / phone
+   *   - the API call fails (also logged to console)
+   */
+  async updateVisitor(data: {
     name?: string
-    metadata?: Record<string, string>
-  }): void {
-    if (this.visitor) {
-      this.visitor = { ...this.visitor, ...data }
-      this.storage.setVisitor(this.visitor)
+    phoneNumber?: string
+    metadata?: Record<string, unknown>
+    hash?: string
+    ts?: number
+  }): Promise<{ ok: boolean }> {
+    if (!this.visitor) return { ok: false }
+    this.visitor = { ...this.visitor, ...data }
+    this.storage.setVisitor(this.visitor)
+
+    // Refresh the hash on the api client so the next request carries
+    // the fresh signature in `x-visitor-hash`. Only swap when a new
+    // hash is provided — older callers passing only fields keep the
+    // boot-time hash and degrade to lookup-only after expiry.
+    if (data.hash !== undefined && this.visitor.email) {
+      this.apiClient.setVisitorIdentity(this.visitor.email, data.hash)
+    }
+
+    const result = await this.maybeIdentify(this.visitor)
+    if (result.ok) {
+      this.events.emit('visitor:updated', this.visitor)
+    }
+    return result
+  }
+
+  /**
+   * Pushes the current visitor data to `/identify`. Returns `{ ok }`
+   * so awaiting callers (`updateVisitor`) can surface success; boot
+   * and `identify()` ignore the promise via `void`.
+   *
+   * Resolves `{ ok: false }` (no throw) when:
+   *  - sync mode is `off`
+   *  - no visitor / no usable identifier (email or phone)
+   *  - the API call rejects (logged + dropped — non-fatal)
+   *
+   * The mode filter intentionally stops at `off`: `create` is a valid
+   * call too, since the server's VisitorIdentityService no-ops on
+   * existing records and creates only on misses. Letting it through
+   * keeps the widget oblivious to which mode the channel is in.
+   */
+  private async maybeIdentify(
+    visitor: VisitorData | null
+  ): Promise<{ ok: boolean }> {
+    if (!this.channelInfo) return { ok: false }
+    if (this.channelInfo.config.clientSyncMode === 'off') return { ok: false }
+    if (!visitor) return { ok: false }
+    if (!visitor.email && !visitor.phoneNumber) return { ok: false }
+
+    try {
+      const res = await this.apiClient.identify({
+        email: visitor.email,
+        phoneNumber: visitor.phoneNumber,
+        name: visitor.name,
+        metadata: visitor.metadata,
+        ts: visitor.ts,
+      })
+      return { ok: !!res.ok }
+    } catch (e) {
+      // Non-fatal: the chat keeps working even if the Client record
+      // didn't get synced this session.
+      console.warn('[BaseportalChat] identify failed:', e)
+      return { ok: false }
     }
   }
 
