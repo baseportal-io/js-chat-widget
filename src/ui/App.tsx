@@ -3,9 +3,10 @@
 import { useEffect, useState } from 'preact/hooks'
 
 import type { ApiClient } from '../api/client'
-import type { ChannelInfo, VisitorData } from '../api/types'
+import type { ChannelInfo, Message, VisitorData } from '../api/types'
 import type { RealtimeClient } from '../realtime/ably-client'
 import type { EventEmitter } from '../utils/events'
+import { playNotificationSound } from '../utils/notification-sound'
 import type { Storage } from '../utils/storage'
 import { ChatBubble } from './components/ChatBubble'
 import { ChatWindow } from './components/ChatWindow'
@@ -25,6 +26,7 @@ interface AppProps {
   // Controlled state from widget class
   isOpenRef: { current: boolean }
   setIsOpen: (open: boolean) => void
+  notificationSound: boolean
 }
 
 export function App({
@@ -40,6 +42,7 @@ export function App({
   t,
   isOpenRef,
   setIsOpen,
+  notificationSound,
 }: AppProps) {
   const [isOpen, setIsOpenState] = useState(isOpenRef.current)
   const [isHidden, setIsHidden] = useState(hidden)
@@ -77,6 +80,27 @@ export function App({
       events.off('hide', onHide)
     }
   }, [events, isOpenRef, setIsOpen])
+
+  // Notification sound on inbound admin/AI messages. Visitor echoes
+  // (`role === 'client'`) are suppressed — playing back to the
+  // sender after they hit send is just noise. The hook itself layers
+  // on visibility/focus + dedup gating so this listener stays small.
+  useEffect(() => {
+    if (!notificationSound) return
+    const onMessage = (msg: Message) => {
+      if (!msg || msg.role === 'client') return
+      const widgetActive =
+        isOpenRef.current &&
+        typeof document !== 'undefined' &&
+        document.hasFocus() &&
+        document.visibilityState === 'visible'
+      playNotificationSound({ isWidgetActive: widgetActive })
+    }
+    events.on('message:received', onMessage)
+    return () => {
+      events.off('message:received', onMessage)
+    }
+  }, [events, isOpenRef, notificationSound])
 
   const handleToggle = () => {
     const next = !isOpen

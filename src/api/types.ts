@@ -144,4 +144,11 @@ export interface BaseportalChatConfig {
    * for support troubleshooting — flip on, reproduce, send logs.
    */
   debug?: boolean
+  /**
+   * Plays a short alert when an inbound message arrives while the
+   * visitor isn't actively looking at the widget. Defaults to true.
+   * Embedders can opt out (silent kiosk modes, accessibility prefs)
+   * by setting `notificationSound: false`.
+   */
+  notificationSound?: boolean
 }

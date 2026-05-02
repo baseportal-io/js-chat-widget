@@ -97,6 +97,7 @@ export class BaseportalChat {
         setIsOpen: (open: boolean) => {
           this.isOpenRef.current = open
         },
+        notificationSound: this.config.notificationSound !== false,
       })
 
       // Override theme if needed

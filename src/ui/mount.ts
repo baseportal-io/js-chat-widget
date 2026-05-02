@@ -23,6 +23,7 @@ interface MountOptions {
   container?: HTMLElement
   isOpenRef: { current: boolean }
   setIsOpen: (open: boolean) => void
+  notificationSound: boolean
 }
 
 let hostElement: HTMLElement | null = null
@@ -107,6 +108,7 @@ export function mount(options: MountOptions): void {
       t: options.t,
       isOpenRef: options.isOpenRef,
       setIsOpen: options.setIsOpen,
+      notificationSound: options.notificationSound,
     }),
     widgetRoot
   )
