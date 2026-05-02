@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'preact/hooks'
 import type { Message } from '../../api/types'
 import { whatsappToHtml } from '../../utils/markdown'
 import type { Translations } from '../i18n'
+import { IconChat } from '../icons'
 import { ImageLightbox } from './ImageLightbox'
 import { MessageMedia } from './MessageMedia'
 
@@ -30,8 +31,25 @@ export function MessageList({ messages, loading, t }: MessageListProps) {
     )
   }
 
+  // Empty thread: nudge the visitor to send the first message instead
+  // of leaving them staring at a blank canvas. The composer is still
+  // available below; this is purely encouragement copy.
+  if (messages.length === 0) {
+    return (
+      <div class="bp-wthread bp-wthread--empty">
+        <div class="bp-wempty">
+          <div class="bp-wempty__ico">
+            <IconChat />
+          </div>
+          <h4>{t.chat.emptyTitle}</h4>
+          <p>{t.chat.emptyDescription}</p>
+        </div>
+      </div>
+    )
+  }
+
   return (
-    <div class="bp-messages">
+    <div class="bp-wthread">
       {messages.map((msg) => (
         <MessageBubble
           key={msg.id}
@@ -61,7 +79,7 @@ function MessageBubble({
   t: Translations
 }) {
   const isClient = message.role === 'client'
-  const cls = isClient ? 'bp-msg bp-msg--client' : 'bp-msg bp-msg--agent'
+  const cls = isClient ? 'bp-wmsg bp-wmsg--me' : 'bp-wmsg bp-wmsg--them'
 
   const time = new Date(message.createdAt).toLocaleTimeString([], {
     hour: '2-digit',
@@ -71,7 +89,7 @@ function MessageBubble({
   return (
     <div class={cls}>
       {!isClient && (
-        <div class="bp-msg__avatar">
+        <div class="bp-wmsg__avatar">
           {message.user?.avatar?.url ? (
             <img
               src={message.user.avatar.url}
@@ -82,27 +100,27 @@ function MessageBubble({
           )}
         </div>
       )}
-      <div class="bp-msg__body">
-        {message.media && (
-          <MessageMedia
-            media={message.media}
-            onImageClick={onImageClick}
-            t={t}
-          />
-        )}
-        {message.content && (
-          <div
-            class="bp-msg__content"
-            // The agent emits WhatsApp-style markdown (*bold*, _italic_,
-            // etc.). Without this, "_(opcional)_" and "*Cadastrar Cliente*"
-            // render as raw markers. whatsappToHtml escapes the input
-            // first, so injecting HTML through this path is not possible.
-            dangerouslySetInnerHTML={{
-              __html: whatsappToHtml(message.content),
-            }}
-          />
-        )}
-        <div class="bp-msg__time">{time}</div>
+      <div class="bp-wmsg__body">
+        <div class="bp-wmsg__bubble">
+          {message.media && (
+            <MessageMedia
+              media={message.media}
+              onImageClick={onImageClick}
+              t={t}
+            />
+          )}
+          {message.content && (
+            <div
+              // The agent emits WhatsApp-style markdown (*bold*, _italic_,
+              // etc.). whatsappToHtml escapes the input first, so injecting
+              // HTML through this path is not possible.
+              dangerouslySetInnerHTML={{
+                __html: whatsappToHtml(message.content),
+              }}
+            />
+          )}
+        </div>
+        <div class="bp-wmsg__time">{time}</div>
       </div>
     </div>
   )

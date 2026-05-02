@@ -1,8 +1,9 @@
 /** @jsxImportSource preact */
 
 import type { Message } from '../../api/types'
-import { IconDownload, IconFile } from '../icons'
 import type { Translations } from '../i18n'
+import { IconDownload, IconFile } from '../icons'
+import { AudioPlayer } from './AudioPlayer'
 
 interface MessageMediaProps {
   media: NonNullable<Message['media']>
@@ -32,6 +33,13 @@ export function MessageMedia({ media, onImageClick, t }: MessageMediaProps) {
         <source src={media.url} type={mimeType} />
       </video>
     )
+  }
+
+  // Audio bubble: chat-style player with play/pause + pseudo-waveform
+  // + duration. Falls through to the file/download card for any other
+  // mime (pdf, docx, etc.).
+  if (mimeType.startsWith('audio/') || media.kind === 'audio') {
+    return <AudioPlayer src={media.url} seed={media.id} />
   }
 
   return (

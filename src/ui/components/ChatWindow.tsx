@@ -12,14 +12,21 @@ import type {
 import type { RealtimeClient } from '../../realtime/ably-client'
 import type { EventEmitter } from '../../utils/events'
 import type { Storage } from '../../utils/storage'
-import { IconArrowLeft, IconX } from '../icons'
 import type { Translations } from '../i18n'
-import { ConversationList } from './ConversationList'
+import { warn } from '../../utils/logger'
 import { MessageInput, type AttachedFile } from './MessageInput'
 import { MessageList } from './MessageList'
 import { PreChatForm } from './PreChatForm'
+import { BottomTabs, type Tab } from './shell/BottomTabs'
+import { HeaderHero } from './shell/HeaderHero'
+import { HeaderNav } from './shell/HeaderNav'
+import { HeaderSolid } from './shell/HeaderSolid'
+import { ArticleView } from './views/ArticleView'
+import { HelpView } from './views/HelpView'
+import { HomeView } from './views/HomeView'
+import { MessagesView } from './views/MessagesView'
 
-type View = 'prechat' | 'conversations' | 'chat'
+type View = null | 'chat' | 'article' | 'prechat'
 
 interface ChatWindowProps {
   channelInfo: ChannelInfo
@@ -33,8 +40,26 @@ interface ChatWindowProps {
   onClose: () => void
   t: Translations
   initialConversationId?: string | null
+  isInContainer?: boolean
 }
 
+/**
+ * V1 widget shell. Owns three orthogonal pieces of state:
+ *
+ *   - `tab`  — which footer tab is selected (home / msgs / help)
+ *   - `view` — when present, an *overlay* view that takes over the
+ *              window (chat thread, article reader, prechat form).
+ *              When null, the active `tab`'s body is shown.
+ *
+ * Decisions on view precedence:
+ *   1. `view === 'prechat'` → PreChatForm
+ *   2. `view === 'chat'`    → ChatView (HeaderNav + thread + composer)
+ *   3. `view === 'article'` → ArticleView (HeaderNav + reader)
+ *   4. `view === null`      → tab body + BottomTabs
+ *
+ * The Help tab is hidden entirely when the channel has no KB linked
+ * — there's nothing to render. The footer tabs collapse to two.
+ */
 export function ChatWindow({
   channelInfo,
   apiClient,
@@ -47,11 +72,15 @@ export function ChatWindow({
   onClose,
   t,
   initialConversationId,
+  isInContainer,
 }: ChatWindowProps) {
-  const [view, setView] = useState<View>('chat')
-  const [conversation, setConversation] = useState<Conversation | null>(null)
+  const [tab, setTab] = useState<Tab>('home')
+  const [view, setView] = useState<View>(null)
+  const [homeSearch, setHomeSearch] = useState('')
   const [conversations, setConversations] = useState<Conversation[]>([])
+  const [conversation, setConversation] = useState<Conversation | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
+  const [activeArticleSlug, setActiveArticleSlug] = useState<string | null>(null)
   const [inputValue, setInputValue] = useState('')
   const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
@@ -59,90 +88,14 @@ export function ChatWindow({
   const [uploadedFileId, setUploadedFileId] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
 
-  const isOpen = conversation?.open !== false
-
   const allowViewHistory = channelInfo.config.allowViewHistory && isAuthenticated
+  const showHelpTab = !!channelInfo.knowledgeBase
 
-  // Ref to break circular dependency between connectRealtime and startNewConversation
   const startNewConversationRef = useRef<() => Promise<void>>(async () => {})
-
-  // Determine initial view
-  useEffect(() => {
-    const init = async () => {
-      setLoading(true)
-      try {
-        if (allowViewHistory) {
-          // History mode: load conversation list
-          const convs = await apiClient.getVisitorConversations()
-          setConversations(convs)
-
-          if (initialConversationId) {
-            const conv = convs.find((c) => c.id === initialConversationId)
-            if (conv) {
-              await openConversation(conv)
-              return
-            }
-          }
-
-          if (convs.length > 0) {
-            setView('conversations')
-          } else {
-            if (needsPreChat()) {
-              setView('prechat')
-            } else {
-              await startNewConversation()
-            }
-          }
-        } else {
-          // No history: check localStorage for existing conversation
-          const storedId =
-            initialConversationId || storage.getConversationId()
-
-          if (storedId) {
-            try {
-              const conv = await apiClient.getConversation(storedId)
-              const msgs = await apiClient.getMessages(storedId, { limit: 50 })
-              setMessages(Array.isArray(msgs) ? msgs.reverse() : [])
-              setConversation(conv)
-              setView('chat')
-              if (conv.open) {
-                connectRealtime(storedId)
-              }
-            } catch {
-              storage.clear()
-              if (needsPreChat()) {
-                setView('prechat')
-              } else {
-                await startNewConversation()
-              }
-            }
-          } else {
-            if (needsPreChat()) {
-              setView('prechat')
-            } else {
-              await startNewConversation()
-            }
-          }
-        }
-      } catch (e) {
-        console.error('[BaseportalChat] Error initializing:', e)
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    init()
-
-    return () => {
-      realtimeClient.unsubscribe()
-    }
-  }, [])
 
   const needsPreChat = useCallback((): boolean => {
     if (visitor?.name && visitor?.email) return false
-    return (
-      channelInfo.config.requireName || channelInfo.config.requireEmail
-    )
+    return channelInfo.config.requireName || channelInfo.config.requireEmail
   }, [channelInfo, visitor])
 
   const connectRealtime = useCallback(
@@ -151,42 +104,37 @@ export function ChatWindow({
         onMessage: (msg) => {
           setMessages((prev) => {
             if (prev.some((m) => m.id === msg.id)) {
-              return prev.map((m) =>
-                m.id === msg.id ? { ...m, ...msg } : m
-              )
+              return prev.map((m) => (m.id === msg.id ? { ...m, ...msg } : m))
             }
             const withoutTemp = prev.filter(
-              (m) =>
-                !String(m.id).startsWith('temp-') ||
-                m.content !== msg.content
+              (m) => !String(m.id).startsWith('temp-') || m.content !== msg.content
             )
             return [...withoutTemp, msg]
           })
           events.emit('message:received', msg)
         },
         onConversationStatusUpdate: (conv) => {
-          setConversation((prev) =>
-            prev ? { ...prev, open: conv.open } : prev
-          )
-          if (!conv.open) {
-            events.emit('conversation:closed', conv)
-          }
+          setConversation((prev) => (prev ? { ...prev, open: conv.open } : prev))
+          if (!conv.open) events.emit('conversation:closed', conv)
         },
       })
     },
-    [realtimeClient, events, storage, allowViewHistory, apiClient, needsPreChat]
+    [realtimeClient, events]
   )
 
   const openConversation = useCallback(
-    async (conv: Conversation) => {
+    async (convId: string) => {
       setLoading(true)
       try {
-        const msgs = await apiClient.getMessages(conv.id, { limit: 50 })
-        setMessages(Array.isArray(msgs) ? msgs.reverse() : [])
+        const [conv, msgs] = await Promise.all([
+          apiClient.getConversation(convId),
+          apiClient.getMessages(convId, { limit: 50 }),
+        ])
         setConversation(conv)
+        setMessages(Array.isArray(msgs) ? msgs.reverse() : [])
         setView('chat')
-        storage.setConversationId(conv.id)
-        connectRealtime(conv.id)
+        storage.setConversationId(convId)
+        if (conv.open) connectRealtime(convId)
       } catch (e) {
         console.error('[BaseportalChat] Error opening conversation:', e)
       } finally {
@@ -218,6 +166,85 @@ export function ChatWindow({
 
   startNewConversationRef.current = startNewConversation
 
+  const handleStartConversation = useCallback(() => {
+    if (needsPreChat()) {
+      setView('prechat')
+    } else {
+      startNewConversation()
+    }
+  }, [needsPreChat, startNewConversation])
+
+  const refreshConversations = useCallback(async () => {
+    if (!allowViewHistory) return
+    try {
+      const list = await apiClient.getVisitorConversations()
+      setConversations(list)
+    } catch {
+      // ignore — list stays empty
+    }
+  }, [allowViewHistory, apiClient])
+
+  // Initial load: pull conversation list (if history allowed) and
+  // honor `initialConversationId` if it lines up with one of them.
+  useEffect(() => {
+    let cancelled = false
+    const init = async () => {
+      setLoading(true)
+      try {
+        if (allowViewHistory) {
+          const list = await apiClient.getVisitorConversations()
+          if (cancelled) return
+          setConversations(list)
+
+          if (initialConversationId) {
+            const conv = list.find((c) => c.id === initialConversationId)
+            if (conv) {
+              await openConversation(conv.id)
+              return
+            }
+          }
+        }
+
+        // Restore localStorage conversation if any (works for both
+        // anonymous and authenticated visitors).
+        const storedId = initialConversationId || storage.getConversationId()
+        if (storedId && !allowViewHistory) {
+          try {
+            await openConversation(storedId)
+            return
+          } catch {
+            storage.clear()
+          }
+        }
+      } catch (e) {
+        console.error('[BaseportalChat] Error initializing:', e)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    init()
+    return () => {
+      cancelled = true
+      realtimeClient.unsubscribe()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const handleOpenArticle = useCallback((slug: string) => {
+    setActiveArticleSlug(slug)
+    setView('article')
+  }, [])
+
+  const handleBackFromOverlay = useCallback(() => {
+    setView(null)
+    if (view === 'chat') {
+      realtimeClient.unsubscribe()
+      setMessages([])
+      setConversation(null)
+      refreshConversations()
+    }
+  }, [view, realtimeClient, refreshConversations])
+
   const handlePreChatSubmit = useCallback(
     async (data: { name?: string; email?: string }) => {
       storage.setVisitor({ ...visitor, ...data })
@@ -235,20 +262,14 @@ export function ChatWindow({
   const handleFileSelect = useCallback(
     async (file: File) => {
       if (!conversation) return
-
       const MAX_SIZE = 25 * 1024 * 1024
       if (file.size > MAX_SIZE) {
-        console.warn('[BaseportalChat] File too large')
+        warn('File too large')
         return
       }
-
-      const preview = file.type.startsWith('image/')
-        ? URL.createObjectURL(file)
-        : undefined
-
+      const preview = file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined
       setAttachedFile({ file, preview })
       setUploading(true)
-
       try {
         const uploaded = await apiClient.uploadFile(conversation.id, file)
         setUploadedFileId(uploaded.id)
@@ -269,6 +290,35 @@ export function ChatWindow({
     setUploadedFileId(null)
   }, [attachedFile])
 
+  /**
+   * Audio path: AudioRecorder hands a Blob, we wrap it in a File
+   * with a stable name so the upload endpoint stores it as a
+   * regular media item and posts a message pointing at it. We do
+   * NOT push an optimistic bubble first — audio is small enough
+   * that the round-trip is fast and the realtime echo paints the
+   * bubble naturally.
+   */
+  const handleSendAudio = useCallback(
+    async (blob: Blob, _durationSeconds: number): Promise<void> => {
+      if (!conversation) return
+      const ext = blob.type.includes('mp4') ? 'm4a' : 'webm'
+      const file = new File([blob], `audio-${Date.now()}.${ext}`, {
+        type: blob.type || 'audio/webm',
+      })
+      try {
+        const uploaded = await apiClient.uploadFile(conversation.id, file)
+        const msg = await apiClient.sendMessage(conversation.id, {
+          mediaId: uploaded.id,
+        })
+        events.emit('message:sent', msg)
+      } catch (e) {
+        console.error('[BaseportalChat] Error sending audio:', e)
+        throw e
+      }
+    },
+    [apiClient, conversation, events]
+  )
+
   const handleSend = useCallback(async () => {
     const content = inputValue.trim()
     if ((!content && !uploadedFileId) || !conversation || sending) return
@@ -283,7 +333,6 @@ export function ChatWindow({
     }
 
     const mediaId = uploadedFileId || undefined
-
     setInputValue('')
     setAttachedFile(null)
     setUploadedFileId(null)
@@ -300,161 +349,195 @@ export function ChatWindow({
     } catch (e) {
       console.error('[BaseportalChat] Error sending message:', e)
       setMessages((prev) => prev.filter((m) => m.id !== tempId))
-
-      // If conversation is closed or no longer exists, mark as closed
       const errMsg = e instanceof Error ? e.message : ''
       if (errMsg.includes('Row not found') || errMsg.includes('404')) {
         realtimeClient.unsubscribe()
-        setConversation((prev) => prev ? { ...prev, open: false } : prev)
+        setConversation((prev) => (prev ? { ...prev, open: false } : prev))
       } else {
         setInputValue(content)
       }
     } finally {
       setSending(false)
     }
-  }, [inputValue, uploadedFileId, conversation, sending, apiClient, events, realtimeClient, storage, allowViewHistory, needsPreChat])
-
-  const handleNewConversation = useCallback(async () => {
-    realtimeClient.unsubscribe()
-    storage.clear()
-    setConversation(null)
-    setMessages([])
-    if (allowViewHistory) {
-      apiClient.getVisitorConversations().then(setConversations).catch(() => {})
-      setView('conversations')
-    } else if (needsPreChat()) {
-      setView('prechat')
-    } else {
-      await startNewConversationRef.current()
-    }
-  }, [realtimeClient, storage, allowViewHistory, apiClient, needsPreChat])
+  }, [inputValue, uploadedFileId, conversation, sending, apiClient, events, realtimeClient])
 
   const handleReopen = useCallback(async () => {
     if (!conversation) return
     try {
       const updated = await apiClient.reopenConversation(conversation.id)
-      setConversation((prev) => prev ? { ...prev, open: updated.open ?? true } : prev)
+      setConversation((prev) => (prev ? { ...prev, open: updated.open ?? true } : prev))
     } catch (e) {
       console.error('[BaseportalChat] Error reopening conversation:', e)
     }
   }, [conversation, apiClient])
 
-  const handleBack = useCallback(() => {
-    if (allowViewHistory && view === 'chat') {
-      realtimeClient.unsubscribe()
-      setView('conversations')
-      setConversation(null)
-      setMessages([])
-      apiClient.getVisitorConversations().then(setConversations).catch(() => {})
-    } else {
-      onClose()
-    }
-  }, [allowViewHistory, view, realtimeClient, apiClient, onClose])
+  const recentConversation = conversations.find((c) => c.open) || null
+  const unreadTotal = conversations.reduce(
+    (sum, c) => sum + ((c as any).unreadMessagesCount || 0),
+    0
+  )
 
-  const posClass =
-    position === 'bottom-left' ? 'bp-window--left' : 'bp-window--right'
+  const posClass = position === 'bottom-left' ? 'bp-window--left' : 'bp-window--right'
+  const containerClass = isInContainer ? 'bp-window--in-container' : posClass
 
-  const headerTitle =
-    view === 'conversations'
-      ? t.conversations.title
-      : channelInfo.name
-
-  const showBack =
-    (allowViewHistory && view === 'chat') || view === 'prechat'
-
-  return (
-    <div class={`bp-window ${posClass}`}>
-      {/* Header */}
-      <div class="bp-header">
-        <div class="bp-header__title">
-          {showBack && (
-            <button class="bp-header__back" onClick={handleBack}>
-              <IconArrowLeft />
-            </button>
-          )}
-          {headerTitle}
-        </div>
-        <button class="bp-header__close" onClick={onClose}>
-          <IconX />
-        </button>
+  // ── Overlay views (chat / article / prechat) ───────────────────
+  if (view === 'prechat') {
+    return (
+      <div class={`bp-window ${containerClass}`}>
+        <HeaderNav onBack={() => setView(null)} onClose={onClose}>
+          {t.prechat.title}
+        </HeaderNav>
+        <PreChatForm
+          channelInfo={channelInfo}
+          onSubmit={handlePreChatSubmit}
+          loading={loading}
+          t={t}
+        />
       </div>
+    )
+  }
 
-      {/* Content */}
-      {loading && view !== 'chat' ? (
-        <div class="bp-loading">
-          <div class="bp-spinner" />
-        </div>
-      ) : (
+  if (view === 'chat') {
+    const headerTitle = conversation?.lastMessage?.user
+      ? `${conversation.lastMessage.user.firstName} ${conversation.lastMessage.user.lastName}`
+      : channelInfo.name
+    const isOpen = conversation?.open !== false
+
+    return (
+      <div class={`bp-window ${containerClass}`}>
+        <HeaderNav onBack={handleBackFromOverlay} onClose={onClose}>
+          {headerTitle}
+        </HeaderNav>
+        <MessageList messages={messages} loading={loading} t={t} />
+        {isOpen ? (
+          <MessageInput
+            value={inputValue}
+            onChange={setInputValue}
+            onSend={handleSend}
+            onFileSelect={handleFileSelect}
+            onFileRemove={handleFileRemove}
+            onSendAudio={handleSendAudio}
+            attachedFile={attachedFile}
+            uploading={uploading}
+            disabled={sending || loading}
+            placeholder={t.chat.placeholder}
+            t={t}
+          />
+        ) : (
+          <div class="bp-closed-banner">
+            <span class="bp-closed-banner__text">{t.chat.closed}</span>
+            {channelInfo.config.allowReopenConversation ? (
+              <button class="bp-closed-banner__reopen" onClick={handleReopen}>
+                {t.chat.reopen}
+              </button>
+            ) : (
+              <button class="bp-closed-banner__reopen" onClick={handleStartConversation}>
+                {t.chat.newConversation}
+              </button>
+            )}
+          </div>
+        )}
+        {channelInfo.config.privacyPolicyUrl && (
+          <div class="bp-privacy-footer">
+            <a href={channelInfo.config.privacyPolicyUrl} target="_blank" rel="noopener noreferrer">
+              {t.prechat.privacyLink}
+            </a>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  if (view === 'article' && activeArticleSlug) {
+    return (
+      <div class={`bp-window ${containerClass}`}>
+        <HeaderNav onBack={() => setView(null)} onClose={onClose}>
+          {t.article.backToHelp}
+        </HeaderNav>
+        <ArticleView
+          apiClient={apiClient}
+          slug={activeArticleSlug}
+          knowledgeBase={channelInfo.knowledgeBase || null}
+          t={t}
+        />
+        <BottomTabs
+          active="help"
+          onChange={(next) => {
+            setView(null)
+            setTab(next)
+          }}
+          unreadCount={unreadTotal}
+          showHelp={showHelpTab}
+          t={t}
+        />
+      </div>
+    )
+  }
+
+  // ── Tab bodies ─────────────────────────────────────────────────
+  return (
+    <div class={`bp-window ${containerClass}`}>
+      {tab === 'home' && (
         <>
-          {view === 'prechat' && (
-            <PreChatForm
-              channelInfo={channelInfo}
-              onSubmit={handlePreChatSubmit}
-              loading={loading}
-              t={t}
-            />
-          )}
-
-          {view === 'conversations' && (
-            <ConversationList
-              conversations={conversations}
-              channelInfo={channelInfo}
-              loading={loading}
-              onSelect={openConversation}
-              onNew={
-                needsPreChat()
-                  ? () => setView('prechat')
-                  : startNewConversation
-              }
-              t={t}
-            />
-          )}
-
-          {view === 'chat' && (
-            <>
-              <MessageList messages={messages} loading={loading} t={t} />
-              {isOpen ? (
-                <MessageInput
-                  value={inputValue}
-                  onChange={setInputValue}
-                  onSend={handleSend}
-                  onFileSelect={handleFileSelect}
-                  onFileRemove={handleFileRemove}
-                  attachedFile={attachedFile}
-                  uploading={uploading}
-                  disabled={sending || loading}
-                  placeholder={t.chat.placeholder}
-                  t={t}
-                />
-              ) : (
-                <div class="bp-closed-banner">
-                  <span class="bp-closed-banner__text">{t.chat.closed}</span>
-                  {channelInfo.config.allowReopenConversation ? (
-                    <button class="bp-closed-banner__reopen" onClick={handleReopen}>
-                      {t.chat.reopen}
-                    </button>
-                  ) : (
-                    <button class="bp-closed-banner__reopen" onClick={handleNewConversation}>
-                      {t.chat.newConversation}
-                    </button>
-                  )}
-                </div>
-              )}
-              {channelInfo.config.privacyPolicyUrl && (
-                <div class="bp-privacy-footer">
-                  <a
-                    href={channelInfo.config.privacyPolicyUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    {t.prechat.privacyLink}
-                  </a>
-                </div>
-              )}
-            </>
-          )}
+          <HeaderHero
+            channelName={channelInfo.name}
+            visitorName={visitor?.name}
+            administrators={channelInfo.administrators || []}
+            responseTimeSeconds={channelInfo.responseTime?.seconds ?? null}
+            onClose={onClose}
+            search={
+              showHelpTab
+                ? {
+                    value: homeSearch,
+                    onInput: setHomeSearch,
+                    placeholder: t.home.searchHelpPlaceholder,
+                  }
+                : undefined
+            }
+            t={t}
+          />
+          <HomeView
+            channelInfo={channelInfo}
+            visitorName={visitor?.name}
+            recentConversation={recentConversation}
+            onStartConversation={handleStartConversation}
+            onOpenConversation={openConversation}
+            onOpenArticle={handleOpenArticle}
+            onGoToHelp={() => setTab('help')}
+            apiClient={apiClient}
+            search={homeSearch}
+            onSearchChange={setHomeSearch}
+            t={t}
+          />
         </>
       )}
+
+      {tab === 'msgs' && (
+        <>
+          <HeaderSolid title={t.messages.title} onClose={onClose} />
+          <MessagesView
+            conversations={conversations}
+            onOpen={openConversation}
+            onNew={handleStartConversation}
+            t={t}
+          />
+        </>
+      )}
+
+      {tab === 'help' && (
+        <>
+          <HeaderSolid title={t.help.title} subtitle={t.help.subtitle} onClose={onClose} />
+          <HelpView apiClient={apiClient} onOpenArticle={handleOpenArticle} t={t} />
+        </>
+      )}
+
+      <BottomTabs
+        active={tab}
+        onChange={setTab}
+        unreadCount={unreadTotal}
+        showHelp={showHelpTab}
+        t={t}
+      />
     </div>
   )
 }

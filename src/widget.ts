@@ -4,6 +4,7 @@ import { RealtimeClient } from './realtime/ably-client'
 import { getTranslations } from './ui/i18n'
 import { mount, unmount, updateTheme } from './ui/mount'
 import { EventCallback, EventEmitter } from './utils/events'
+import { setDebug, warn } from './utils/logger'
 import { Storage } from './utils/storage'
 
 export class BaseportalChat {
@@ -29,6 +30,8 @@ export class BaseportalChat {
       locale: config.locale || 'pt',
     }
 
+    setDebug(!!config.debug)
+
     this.hidden = config.hideOnLoad || false
     this.visitor = config.visitor || null
     this.isAuthenticated = !!config.visitor?.email
@@ -36,7 +39,11 @@ export class BaseportalChat {
     this.apiClient = new ApiClient(this.config.channelToken)
 
     if (this.isAuthenticated && this.visitor?.email) {
-      this.apiClient.setVisitorIdentity(this.visitor.email, this.visitor.hash)
+      this.apiClient.setVisitorIdentity(
+        this.visitor.email,
+        this.visitor.hash,
+        this.visitor.ts
+      )
     }
 
     this.storage = new Storage(
@@ -152,7 +159,7 @@ export class BaseportalChat {
   }): void {
     this.visitor = visitor
     this.isAuthenticated = true
-    this.apiClient.setVisitorIdentity(visitor.email, visitor.hash)
+    this.apiClient.setVisitorIdentity(visitor.email, visitor.hash, visitor.ts)
     this.storage = new Storage(this.config.channelToken, visitor.email)
     this.storage.setVisitor(visitor)
     this.events.emit('identified', visitor)
@@ -204,7 +211,7 @@ export class BaseportalChat {
     // hash is provided — older callers passing only fields keep the
     // boot-time hash and degrade to lookup-only after expiry.
     if (data.hash !== undefined && this.visitor.email) {
-      this.apiClient.setVisitorIdentity(this.visitor.email, data.hash)
+      this.apiClient.setVisitorIdentity(this.visitor.email, data.hash, data.ts)
     }
 
     const result = await this.maybeIdentify(this.visitor)
@@ -249,7 +256,7 @@ export class BaseportalChat {
     } catch (e) {
       // Non-fatal: the chat keeps working even if the Client record
       // didn't get synced this session.
-      console.warn('[BaseportalChat] identify failed:', e)
+      warn('identify failed:', e)
       return { ok: false }
     }
   }

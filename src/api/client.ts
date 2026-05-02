@@ -1,62 +1,76 @@
-import type { ChannelInfo, Conversation, Message } from './types'
+import type {
+  Article,
+  ArticleSummary,
+  ChannelInfo,
+  Conversation,
+  Message,
+} from "./types";
 
 // Hard-coded so embedders can't point the widget at a rogue host.
 // If you need to test against a non-production API, change this
 // constant in source and rebuild — there's no SDK-level override.
-const API_BASE = 'https://api.baseportal.io/public/chat'
+const API_BASE = "https://api.baseportal.io/public/chat";
 
 export class ApiClient {
-  private baseUrl: string
-  private channelToken: string
-  private visitorEmail?: string
-  private visitorHash?: string
+  private baseUrl: string;
+  private channelToken: string;
+  private visitorEmail?: string;
+  private visitorHash?: string;
+  private visitorTs?: number;
 
   constructor(channelToken: string) {
-    this.channelToken = channelToken
-    this.baseUrl = API_BASE
+    this.channelToken = channelToken;
+    this.baseUrl = API_BASE;
   }
 
-  setVisitorIdentity(email: string, hash?: string): void {
-    this.visitorEmail = email
-    this.visitorHash = hash
+  setVisitorIdentity(email: string, hash?: string, ts?: number): void {
+    this.visitorEmail = email;
+    this.visitorHash = hash;
+    this.visitorTs = ts;
   }
 
   clearVisitorIdentity(): void {
-    this.visitorEmail = undefined
-    this.visitorHash = undefined
+    this.visitorEmail = undefined;
+    this.visitorHash = undefined;
+    this.visitorTs = undefined;
   }
 
   private headers(): Record<string, string> {
     const h: Record<string, string> = {
-      'Content-Type': 'application/json',
-      'x-channel-token': this.channelToken,
-    }
-    if (this.visitorEmail) h['x-visitor-email'] = this.visitorEmail
-    if (this.visitorHash) h['x-visitor-hash'] = this.visitorHash
-    return h
+      "Content-Type": "application/json",
+      "x-channel-token": this.channelToken,
+    };
+    if (this.visitorEmail) h["x-visitor-email"] = this.visitorEmail;
+    if (this.visitorHash) h["x-visitor-hash"] = this.visitorHash;
+    // ts only matters for v2 verification; harmless on v1 (the API
+    // ignores extra headers). Sending it always keeps the widget
+    // version-agnostic — the channel decides which scheme to apply.
+    if (this.visitorTs !== undefined)
+      h["x-visitor-ts"] = String(this.visitorTs);
+    return h;
   }
 
   private async request<T>(
     method: string,
     path: string,
-    body?: unknown
+    body?: unknown,
   ): Promise<T> {
     const res = await fetch(`${this.baseUrl}${path}`, {
       method,
       headers: this.headers(),
       body: body ? JSON.stringify(body) : undefined,
-    })
+    });
 
     if (!res.ok) {
-      const text = await res.text().catch(() => '')
-      throw new Error(`[BaseportalChat] API error ${res.status}: ${text}`)
+      const text = await res.text().catch(() => "");
+      throw new Error(`[BaseportalChat] API error ${res.status}: ${text}`);
     }
 
-    return res.json()
+    return res.json();
   }
 
   async getChannelInfo(): Promise<ChannelInfo> {
-    return this.request('GET', '/channel-info')
+    return this.request("GET", "/channel-info");
   }
 
   /**
@@ -66,84 +80,121 @@ export class ApiClient {
    * stays usable even if identify fails (e.g. rate-limited / offline).
    */
   async identify(data: {
-    email?: string
-    phoneNumber?: string
-    name?: string
-    metadata?: Record<string, unknown>
-    ts?: number
+    email?: string;
+    phoneNumber?: string;
+    name?: string;
+    metadata?: Record<string, unknown>;
+    ts?: number;
   }): Promise<{ ok: boolean }> {
-    return this.request('POST', '/identify', data)
+    return this.request("POST", "/identify", data);
   }
 
   async initConversation(data: {
-    name?: string
-    email?: string
+    name?: string;
+    email?: string;
   }): Promise<Conversation & { messages?: Message[] }> {
-    return this.request('POST', '/conversations', {
+    return this.request("POST", "/conversations", {
       ...data,
       channelToken: this.channelToken,
-    })
+    });
   }
 
   async getConversation(conversationId: string): Promise<Conversation> {
-    return this.request('GET', `/conversations/${conversationId}`)
+    return this.request("GET", `/conversations/${conversationId}`);
   }
 
   async getMessages(
     conversationId: string,
-    params?: { limit?: number; page?: number }
+    params?: { limit?: number; page?: number },
   ): Promise<Message[]> {
-    const qs = new URLSearchParams()
-    if (params?.limit) qs.set('limit', String(params.limit))
-    if (params?.page) qs.set('page', String(params.page))
-    const query = qs.toString() ? `?${qs.toString()}` : ''
-    return this.request('GET', `/conversations/${conversationId}/messages${query}`)
+    const qs = new URLSearchParams();
+    if (params?.limit) qs.set("limit", String(params.limit));
+    if (params?.page) qs.set("page", String(params.page));
+    const query = qs.toString() ? `?${qs.toString()}` : "";
+    return this.request(
+      "GET",
+      `/conversations/${conversationId}/messages${query}`,
+    );
   }
 
-  async uploadFile(conversationId: string, file: File): Promise<{ id: string; url: string; name: string; mimeType: string }> {
-    const formData = new FormData()
-    formData.append('file', file)
+  async uploadFile(
+    conversationId: string,
+    file: File,
+  ): Promise<{ id: string; url: string; name: string; mimeType: string }> {
+    const formData = new FormData();
+    formData.append("file", file);
 
     const headers: Record<string, string> = {
-      'x-channel-token': this.channelToken,
-    }
-    if (this.visitorEmail) headers['x-visitor-email'] = this.visitorEmail
-    if (this.visitorHash) headers['x-visitor-hash'] = this.visitorHash
+      "x-channel-token": this.channelToken,
+    };
+    if (this.visitorEmail) headers["x-visitor-email"] = this.visitorEmail;
+    if (this.visitorHash) headers["x-visitor-hash"] = this.visitorHash;
+    if (this.visitorTs !== undefined)
+      headers["x-visitor-ts"] = String(this.visitorTs);
 
-    const res = await fetch(`${this.baseUrl}/conversations/${conversationId}/upload`, {
-      method: 'POST',
-      headers,
-      body: formData,
-    })
+    const res = await fetch(
+      `${this.baseUrl}/conversations/${conversationId}/upload`,
+      {
+        method: "POST",
+        headers,
+        body: formData,
+      },
+    );
 
     if (!res.ok) {
-      const text = await res.text().catch(() => '')
-      throw new Error(`[BaseportalChat] Upload error ${res.status}: ${text}`)
+      const text = await res.text().catch(() => "");
+      throw new Error(`[BaseportalChat] Upload error ${res.status}: ${text}`);
     }
 
-    return res.json()
+    return res.json();
   }
 
   async sendMessage(
     conversationId: string,
-    data: { content?: string; mediaId?: string }
+    data: { content?: string; mediaId?: string },
   ): Promise<Message> {
     return this.request(
-      'POST',
+      "POST",
       `/conversations/${conversationId}/messages`,
-      data
-    )
+      data,
+    );
   }
 
   async getVisitorConversations(): Promise<Conversation[]> {
-    return this.request('GET', '/conversations')
+    return this.request("GET", "/conversations");
   }
 
   async reopenConversation(conversationId: string): Promise<Conversation> {
-    return this.request('POST', `/conversations/${conversationId}/reopen`)
+    return this.request("POST", `/conversations/${conversationId}/reopen`);
   }
 
   async getAblyToken(conversationId: string): Promise<unknown> {
-    return this.request('POST', '/ably-token', { conversationId })
+    return this.request("POST", "/ably-token", { conversationId });
+  }
+
+  /**
+   * Search published articles in the channel's linked KB. Pass empty
+   * `search` to get the top-viewed articles (used by the Help tab's
+   * default "Most read" section). Returns [] when no KB is linked.
+   */
+  async searchArticles(
+    search?: string,
+    limit?: number,
+  ): Promise<ArticleSummary[]> {
+    const qs = new URLSearchParams();
+    if (search && search.trim().length > 0) qs.set("search", search.trim());
+    if (limit) qs.set("limit", String(limit));
+    const query = qs.toString() ? `?${qs.toString()}` : "";
+    return this.request("GET", `/articles${query}`);
+  }
+
+  async getArticle(slug: string): Promise<Article> {
+    return this.request("GET", `/articles/${encodeURIComponent(slug)}`);
+  }
+
+  async rateArticle(slug: string, helpful: boolean): Promise<{ ok: boolean }> {
+    return this.request("POST", `/articles/${encodeURIComponent(slug)}/rate`, {
+      helpful,
+    });
   }
 }

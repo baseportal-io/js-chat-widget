@@ -26,6 +26,51 @@ export interface ChannelInfo {
   theme: {
     primaryColor: string | null
   }
+  /**
+   * Channel admins exposed to the widget hero ("Time online"). Each
+   * entry carries an `isOnline` snapshot — the widget treats it as a
+   * single read at boot; the snapshot may go stale within the
+   * 5-minute heartbeat window the API uses.
+   */
+  administrators?: ChannelAdmin[]
+  responseTime?: {
+    /** Median first-response in seconds, or null when no signal yet.
+     *  The auto/manual decision happens server-side; the widget only
+     *  consumes the resolved number. */
+    seconds: number | null
+  }
+  knowledgeBase?: KnowledgeBaseInfo | null
+  recommendedArticles?: ArticleSummary[]
+}
+
+export interface ChannelAdmin {
+  id: string
+  firstName: string
+  lastName: string
+  avatarUrl: string | null
+  isOnline: boolean
+}
+
+export interface KnowledgeBaseInfo {
+  id: string
+  name: string
+  kbSubdomain: string | null
+}
+
+export interface ArticleSummary {
+  id: string
+  title: string
+  slug: string
+  summary: string | null
+  /** Reading time in minutes (heuristic, computed server-side). */
+  mins: number
+}
+
+export interface Article extends ArticleSummary {
+  content: string
+  publishedAt: string | null
+  totalHelpful: number
+  totalNotHelpful: number
 }
 
 export interface Conversation {
@@ -92,4 +137,11 @@ export interface BaseportalChatConfig {
   container?: HTMLElement
   hideOnLoad?: boolean
   locale?: 'pt' | 'en' | 'es'
+  /**
+   * When true, the widget logs internal warnings to the console
+   * (audio playback failures, identify rejections, etc.). Off by
+   * default so embedders' consoles stay quiet in production. Useful
+   * for support troubleshooting — flip on, reproduce, send logs.
+   */
+  debug?: boolean
 }
