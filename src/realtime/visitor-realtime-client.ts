@@ -7,6 +7,14 @@ export interface VisitorNotificationPayload {
   conversationId: string
   messageId: string
   preview: string
+  /**
+   * First inline image URL from the rich-HTML body of the
+   * triggering message, if any. Drives the thumbnail rendered
+   * next to the snippet on the floating preview card. Always
+   * an http(s) URL — server-side `extractFirstImageUrl` filters
+   * out `file://` placeholders.
+   */
+  previewImageUrl: string | null
   from: {
     name: string | null
     avatarUrl: string | null
@@ -75,11 +83,20 @@ function normalizeNotification(raw: unknown): VisitorNotificationPayload | null 
     avatarUrl: trimToOptionalString(fromObj.avatarUrl, URL_MAX),
   }
 
+  // previewImageUrl is optional and clamped to URL_MAX. Reject anything
+  // that isn't an http(s) URL so a malicious or stale publish can't
+  // paint a `javascript:` / `data:` / opaque-blob URL into the <img>
+  // tag the widget renders.
+  const rawImage = trimToOptionalString(r.previewImageUrl, URL_MAX)
+  const previewImageUrl =
+    rawImage && /^https?:\/\//i.test(rawImage) ? rawImage : null
+
   return {
     text: 'new_message_notification',
     conversationId,
     messageId,
     preview,
+    previewImageUrl,
     from,
     createdAt,
     source: trimToOptionalString(r.source, 64),

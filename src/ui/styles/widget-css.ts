@@ -1646,6 +1646,15 @@ svg {
   overflow: hidden;
   word-break: break-word;
 }
+.bp-floating-preview__thumb {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+  object-fit: cover;
+  background: rgba(0, 0, 0, 0.04);
+  margin-left: 4px;
+}
 .bp-floating-preview__close {
   position: absolute;
   top: 6px;

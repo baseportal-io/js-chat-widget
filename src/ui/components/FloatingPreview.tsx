@@ -10,6 +10,13 @@ export interface PendingPreview {
   id: string
   conversationId: string
   preview: string
+  /**
+   * Resolved http(s) URL of the first inline image in the message
+   * body, or null when the message is text-only. Renders as a
+   * thumbnail next to the snippet so a campaign image is visible
+   * even with the widget collapsed.
+   */
+  previewImageUrl: string | null
   fromName: string | null
   fromAvatarUrl: string | null
   /** Wall-clock when received — drives the auto-dismiss countdown. */
@@ -23,6 +30,7 @@ export function notificationToPreview(
     id: payload.messageId,
     conversationId: payload.conversationId,
     preview: payload.preview,
+    previewImageUrl: payload.previewImageUrl,
     fromName: payload.from.name,
     fromAvatarUrl: payload.from.avatarUrl,
     receivedAt: Date.now(),
@@ -124,6 +132,14 @@ function PreviewCard({
           )}
           <div class="bp-floating-preview__snippet">{preview.preview}</div>
         </div>
+        {preview.previewImageUrl && (
+          <img
+            class="bp-floating-preview__thumb"
+            src={preview.previewImageUrl}
+            alt=""
+            loading="lazy"
+          />
+        )}
       </button>
       <button
         type="button"
