@@ -14,6 +14,7 @@ export interface VisitorNotificationPayload {
   createdAt: string
   source: string | null
   automationId: string | null
+  campaignId: string | null
 }
 
 export interface VisitorRealtimeHandlers {
@@ -83,6 +84,7 @@ function normalizeNotification(raw: unknown): VisitorNotificationPayload | null 
     createdAt,
     source: trimToOptionalString(r.source, 64),
     automationId: trimToOptionalString(r.automationId, UUID_MAX_LENGTH),
+    campaignId: trimToOptionalString(r.campaignId, UUID_MAX_LENGTH),
   }
 }
 
