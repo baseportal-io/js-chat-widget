@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'preact/hooks'
 
 import type { Message } from '../../api/types'
 import { whatsappToHtml } from '../../utils/markdown'
+import { sanitizeHtml } from '../../utils/sanitize-html'
 import type { Translations } from '../i18n'
 import { IconChat } from '../icons'
 import { ImageLightbox } from './ImageLightbox'
@@ -21,7 +22,7 @@ export function MessageList({ messages, loading, t }: MessageListProps) {
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
+  }, [messages.length])
 
   if (loading) {
     return (
@@ -109,15 +110,29 @@ function MessageBubble({
               t={t}
             />
           )}
-          {message.content && (
+          {message.htmlContent ? (
+            // Outbound automation messages authored in the rich-text editor
+            // ship as HTML. We sanitize against an allowlist (see
+            // utils/sanitize-html.ts) before injecting — the input has
+            // already been controlled at composition, but we treat the
+            // boundary as untrusted defensively.
             <div
-              // The agent emits WhatsApp-style markdown (*bold*, _italic_,
-              // etc.). whatsappToHtml escapes the input first, so injecting
-              // HTML through this path is not possible.
+              class="bp-wmsg__rich"
               dangerouslySetInnerHTML={{
-                __html: whatsappToHtml(message.content),
+                __html: sanitizeHtml(message.htmlContent),
               }}
             />
+          ) : (
+            message.content && (
+              <div
+                // The agent emits WhatsApp-style markdown (*bold*, _italic_,
+                // etc.). whatsappToHtml escapes the input first, so injecting
+                // HTML through this path is not possible.
+                dangerouslySetInnerHTML={{
+                  __html: whatsappToHtml(message.content),
+                }}
+              />
+            )
           )}
         </div>
         <div class="bp-wmsg__time">{time}</div>

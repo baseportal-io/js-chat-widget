@@ -89,6 +89,14 @@ export interface Message {
   createdAt: string
   updatedAt: string
   isDeleted?: boolean
+  /**
+   * Sanitized HTML body — present when the message was authored in the
+   * outbound automation builder via the rich-text editor (Tiptap output).
+   * When set, takes precedence over `content` for rendering. The widget
+   * runs an additional allowlist pass before injecting via
+   * `dangerouslySetInnerHTML` (see `utils/sanitize-html.ts`).
+   */
+  htmlContent?: string | null
   user?: {
     id: string
     firstName: string

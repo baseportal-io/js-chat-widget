@@ -1497,3 +1497,166 @@ svg {
 
 /* ===== Hidden helper ===== */
 .bp-hidden { display: none !important; }
+
+/* ===== Rich-content message body (Tiptap HTML) ===== */
+/* Outbound automation messages opt into HTML rendering via `htmlContent`.
+   Constrain shapes so banners/bubbles stay tidy regardless of editor
+   formatting choices. */
+.bp-wmsg__rich p { margin: 0 0 6px; }
+.bp-wmsg__rich p:last-child { margin-bottom: 0; }
+.bp-wmsg__rich h1,
+.bp-wmsg__rich h2,
+.bp-wmsg__rich h3 { margin: 8px 0 4px; font-size: 15px; font-weight: 600; }
+.bp-wmsg__rich ul,
+.bp-wmsg__rich ol { margin: 4px 0 6px 18px; padding: 0; }
+.bp-wmsg__rich li { margin-bottom: 2px; }
+.bp-wmsg__rich a { color: inherit; text-decoration: underline; }
+.bp-wmsg__rich img { max-width: 100%; border-radius: 8px; margin: 4px 0; }
+.bp-wmsg__rich iframe {
+  max-width: 100%;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border: 0;
+  border-radius: 8px;
+  margin: 4px 0;
+}
+.bp-wmsg__rich blockquote {
+  border-left: 3px solid var(--bp-border);
+  padding-left: 8px;
+  margin: 4px 0;
+  color: var(--bp-text-muted);
+}
+.bp-wmsg__rich code {
+  background: rgba(0, 0, 0, 0.06);
+  padding: 1px 4px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+.bp-wmsg__rich pre {
+  background: rgba(0, 0, 0, 0.06);
+  padding: 8px;
+  border-radius: 6px;
+  overflow-x: auto;
+  font-size: 12px;
+}
+
+/* ===== Floating preview (Instagram-style notification toast) ===== */
+/* Stacks above the FAB when the widget is closed but the visitor has
+   pending automation / admin messages. Click body → opens widget on
+   that conversation. Click X → dismiss locally (no server ack — the
+   real message stays in the conversation thread regardless). */
+.bp-floating-preview-layer {
+  position: fixed;
+  z-index: 2147483645; /* below the FAB (which is +1), above page content */
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-end;
+  pointer-events: none; /* let clicks pass through gaps to the page */
+  /* Keep a tight max-width so the layer doesn't claim the whole bottom row. */
+  max-width: 360px;
+}
+.bp-floating-preview-layer--bottom-right {
+  right: 24px;
+  bottom: 88px; /* clears the 64px FAB + 16px gap + 8px padding */
+}
+.bp-floating-preview-layer--bottom-left {
+  left: 24px;
+  bottom: 88px;
+}
+.bp-floating-preview {
+  position: relative;
+  pointer-events: auto;
+  background: var(--bp-bg, #fff);
+  color: var(--bp-text, #1f2937);
+  border: 1px solid var(--bp-border, rgba(0, 0, 0, 0.08));
+  border-radius: 14px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
+  width: 320px;
+  max-width: calc(100vw - 48px);
+  display: flex;
+  align-items: stretch;
+  overflow: hidden;
+  animation: bp-floating-preview-in 220ms ease-out;
+  transform-origin: bottom right;
+}
+.bp-floating-preview--pressed { transform: scale(0.98); transition: transform 80ms ease; }
+@keyframes bp-floating-preview-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.96); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+.bp-floating-preview__body {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  min-width: 0;
+}
+.bp-floating-preview__body:hover {
+  background: rgba(0, 0, 0, 0.03);
+}
+.bp-floating-preview__avatar {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--bp-primary, #6366f1);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 600;
+  overflow: hidden;
+}
+.bp-floating-preview__avatar img {
+  width: 100%; height: 100%; object-fit: cover;
+}
+.bp-floating-preview__text { min-width: 0; flex: 1; }
+.bp-floating-preview__name {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+  margin-bottom: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bp-floating-preview__snippet {
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--bp-text-muted, #6b7280);
+  /* Two-line clamp keeps the card a predictable height. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+}
+.bp-floating-preview__close {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  background: transparent;
+  color: var(--bp-text-muted, #6b7280);
+  border-radius: 6px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+.bp-floating-preview__close:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--bp-text, #1f2937);
+}

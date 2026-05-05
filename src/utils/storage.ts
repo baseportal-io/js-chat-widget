@@ -40,6 +40,22 @@ export class Storage {
     this.set({ conversationId: id })
   }
 
+  /**
+   * Drops the persisted conversationId without touching the visitor
+   * record. Used when an anonymous visitor's only active conversation
+   * closes — we want them to start fresh on the next widget open, but
+   * keep their name/email if they ever filled the prechat form.
+   */
+  clearConversationId(): void {
+    try {
+      const current = this.get()
+      const { conversationId: _drop, ...rest } = current
+      localStorage.setItem(this.prefix, JSON.stringify(rest))
+    } catch {
+      // ignore
+    }
+  }
+
   getVisitor(): VisitorData | undefined {
     return this.get().visitor
   }

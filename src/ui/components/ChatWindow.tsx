@@ -115,11 +115,21 @@ export function ChatWindow({
         },
         onConversationStatusUpdate: (conv) => {
           setConversation((prev) => (prev ? { ...prev, open: conv.open } : prev))
-          if (!conv.open) events.emit('conversation:closed', conv)
+          if (!conv.open) {
+            // Anonymous visitors see a single "active conversation" in
+            // the Home/Messages tabs derived from this list. The moment
+            // the admin closes the thread, drop it so the next return to
+            // Home shows the empty state instead of a stale row.
+            if (!isAuthenticated) {
+              setConversations([])
+              storage.clearConversationId()
+            }
+            events.emit('conversation:closed', conv)
+          }
         },
       })
     },
-    [realtimeClient, events]
+    [realtimeClient, events, isAuthenticated, storage]
   )
 
   const openConversation = useCallback(
@@ -131,17 +141,35 @@ export function ChatWindow({
           apiClient.getMessages(convId, { limit: 50 }),
         ])
         setConversation(conv)
+        // For anonymous visitors the Home/Messages tabs render off
+        // `conversations[]`, which is otherwise never populated (the
+        // /conversations endpoint requires identity). Mirror the
+        // currently-loaded thread into the list when it's still open
+        // so the visitor can navigate back to it from the tabs.
+        // Closed threads stay out per "fechou, sumiu da lista".
+        if (!isAuthenticated) {
+          setConversations(conv.open ? [conv] : [])
+        }
         setMessages(Array.isArray(msgs) ? msgs.reverse() : [])
         setView('chat')
-        storage.setConversationId(convId)
-        if (conv.open) connectRealtime(convId)
+        events.emit('conversation:viewing', convId)
+        if (conv.open) {
+          storage.setConversationId(convId)
+          connectRealtime(convId)
+        } else if (!isAuthenticated) {
+          // Drop the persisted id so the next reload doesn't put the
+          // visitor straight back into a dead thread.
+          storage.clearConversationId()
+        } else {
+          storage.setConversationId(convId)
+        }
       } catch (e) {
         console.error('[BaseportalChat] Error opening conversation:', e)
       } finally {
         setLoading(false)
       }
     },
-    [apiClient, storage, connectRealtime]
+    [apiClient, storage, connectRealtime, events, isAuthenticated]
   )
 
   const startNewConversation = useCallback(async () => {
@@ -152,8 +180,13 @@ export function ChatWindow({
         email: visitor?.email,
       })
       setConversation(result)
+      // Anonymous visitors: mirror the just-created conversation into
+      // the list so it shows up under Messages and as "Continue de onde
+      // parou" on Home when the visitor steps out of the chat view.
+      if (!isAuthenticated) setConversations([result])
       setMessages(result.messages || [])
       setView('chat')
+      events.emit('conversation:viewing', result.id)
       storage.setConversationId(result.id)
       connectRealtime(result.id)
       events.emit('conversation:started', result)
@@ -162,7 +195,7 @@ export function ChatWindow({
     } finally {
       setLoading(false)
     }
-  }, [apiClient, visitor, storage, connectRealtime, events])
+  }, [apiClient, visitor, storage, connectRealtime, events, isAuthenticated])
 
   startNewConversationRef.current = startNewConversation
 
@@ -226,6 +259,9 @@ export function ChatWindow({
     return () => {
       cancelled = true
       realtimeClient.unsubscribe()
+      // Window is going away — App's viewing-conv ref must drop back
+      // to null so cross-conversation notifications resume firing.
+      events.emit('conversation:viewing', null)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -241,22 +277,25 @@ export function ChatWindow({
       realtimeClient.unsubscribe()
       setMessages([])
       setConversation(null)
+      events.emit('conversation:viewing', null)
       refreshConversations()
     }
-  }, [view, realtimeClient, refreshConversations])
+  }, [view, realtimeClient, refreshConversations, events])
 
   const handlePreChatSubmit = useCallback(
     async (data: { name?: string; email?: string }) => {
       storage.setVisitor({ ...visitor, ...data })
       const result = await apiClient.initConversation(data)
       setConversation(result)
+      if (!isAuthenticated) setConversations([result])
       setMessages(result.messages || [])
       setView('chat')
+      events.emit('conversation:viewing', result.id)
       storage.setConversationId(result.id)
       connectRealtime(result.id)
       events.emit('conversation:started', result)
     },
-    [apiClient, visitor, storage, connectRealtime, events]
+    [apiClient, visitor, storage, connectRealtime, events, isAuthenticated]
   )
 
   const handleFileSelect = useCallback(
@@ -353,13 +392,17 @@ export function ChatWindow({
       if (errMsg.includes('Row not found') || errMsg.includes('404')) {
         realtimeClient.unsubscribe()
         setConversation((prev) => (prev ? { ...prev, open: false } : prev))
+        if (!isAuthenticated) {
+          setConversations([])
+          storage.clearConversationId()
+        }
       } else {
         setInputValue(content)
       }
     } finally {
       setSending(false)
     }
-  }, [inputValue, uploadedFileId, conversation, sending, apiClient, events, realtimeClient])
+  }, [inputValue, uploadedFileId, conversation, sending, apiClient, events, realtimeClient, isAuthenticated, storage])
 
   const handleReopen = useCallback(async () => {
     if (!conversation) return
@@ -371,7 +414,19 @@ export function ChatWindow({
     }
   }, [conversation, apiClient])
 
-  const recentConversation = conversations.find((c) => c.open) || null
+  // Every open conversation, sorted by most recent activity. Used by
+  // HomeView to surface all parallel threads (previously only one
+  // would show, hiding the rest of the visitor's pending conversations
+  // — a regression once each automation started getting its own
+  // conversation).
+  const openConversations = conversations
+    .filter((c) => c.open)
+    .slice()
+    .sort((a, b) => {
+      const ta = a.updatedAt ? new Date(a.updatedAt).getTime() : 0
+      const tb = b.updatedAt ? new Date(b.updatedAt).getTime() : 0
+      return tb - ta
+    })
   const unreadTotal = conversations.reduce(
     (sum, c) => sum + ((c as any).unreadMessagesCount || 0),
     0
@@ -499,7 +554,7 @@ export function ChatWindow({
           <HomeView
             channelInfo={channelInfo}
             visitorName={visitor?.name}
-            recentConversation={recentConversation}
+            openConversations={openConversations}
             onStartConversation={handleStartConversation}
             onOpenConversation={openConversation}
             onOpenArticle={handleOpenArticle}

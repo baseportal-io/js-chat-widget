@@ -9,6 +9,11 @@ import type {
 // Hard-coded so embedders can't point the widget at a rogue host.
 // If you need to test against a non-production API, change this
 // constant in source and rebuild — there's no SDK-level override.
+//
+// Reviewer note: this line previously got committed pointing at
+// `localhost:3333` from a dev session. Production deploys MUST keep
+// the `https://api.baseportal.io/...` value — every PR touching this
+// file is expected to leave the URL on the live API.
 const API_BASE = "https://api.baseportal.io/public/chat";
 
 export class ApiClient {
@@ -173,6 +178,21 @@ export class ApiClient {
   }
 
   /**
+   * Issues a token scoped to the visitor's per-contact notification
+   * channel `visitor-{contactId}`. Used by the widget shell's
+   * `VisitorRealtimeClient` to subscribe regardless of which
+   * conversation the visitor has open — the floating-preview overlay
+   * and the global notification sound rely on this stream.
+   *
+   * Requires identity verification (same headers as `/automation-pending`).
+   * Throws when the channel hasn't been verified yet, in which case
+   * the caller should silently skip subscribing.
+   */
+  async getVisitorAblyToken(): Promise<unknown> {
+    return this.request("POST", "/visitor-ably-token");
+  }
+
+  /**
    * Search published articles in the channel's linked KB. Pass empty
    * `search` to get the top-viewed articles (used by the Help tab's
    * default "Most read" section). Returns [] when no KB is linked.
@@ -196,5 +216,24 @@ export class ApiClient {
     return this.request("POST", `/articles/${encodeURIComponent(slug)}/rate`, {
       helpful,
     });
+  }
+
+  /**
+   * Reports an SPA navigation event so the API can fire PAGE_VISITED automation
+   * triggers. `enter` opens a view; `leave` closes the most recent open view
+   * for the same path and computes its dwell time. Failures are silent — page
+   * tracking is best-effort and never blocks the widget UI.
+   */
+  async trackPage(data: {
+    path: string;
+    query?: string;
+    referrer?: string;
+    action: "enter" | "leave";
+  }): Promise<void> {
+    try {
+      await this.request("POST", "/visitor-pages", data);
+    } catch {
+      // best-effort
+    }
   }
 }

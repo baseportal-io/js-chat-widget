@@ -17,7 +17,15 @@ import { SectionHead } from '../primitives/SectionHead'
 interface HomeViewProps {
   channelInfo: ChannelInfo
   visitorName?: string
-  recentConversation: Conversation | null
+  /**
+   * Every conversation the visitor has open (most recent first). The
+   * Home tab renders all of them under "Continue de onde parou" — a
+   * change from the previous "show only the latest" behaviour, which
+   * masked parallel automation threads (each automation gets its own
+   * conversation now, so a visitor in two campaigns plus a human chat
+   * had three threads but only saw one).
+   */
+  openConversations: Conversation[]
   onStartConversation: () => void
   onOpenConversation: (id: string) => void
   onOpenArticle: (slug: string) => void
@@ -42,7 +50,7 @@ interface HomeViewProps {
  */
 export function HomeView({
   channelInfo,
-  recentConversation,
+  openConversations,
   onStartConversation,
   onOpenConversation,
   onOpenArticle,
@@ -134,21 +142,24 @@ export function HomeView({
         <IconSend />
       </button>
 
-      {recentConversation && (
+      {openConversations.length > 0 && (
         <>
           <SectionHead title={t.home.continueWhereLeftOff} />
-          <ConvRow
-            id={recentConversation.id}
-            name={previewSubject(recentConversation)}
-            preview={previewText(recentConversation)}
-            time={previewTime(recentConversation)}
-            unread={0}
-            status={recentConversation.open ? 'open' : 'closed'}
-            avatarSeed={recentConversation.id}
-            avatarInitials={previewInitials(recentConversation)}
-            onClick={() => onOpenConversation(recentConversation.id)}
-            t={t}
-          />
+          {openConversations.map((conv) => (
+            <ConvRow
+              key={conv.id}
+              id={conv.id}
+              name={previewSubject(conv)}
+              preview={previewText(conv)}
+              time={previewTime(conv)}
+              unread={0}
+              status={conv.open ? 'open' : 'closed'}
+              avatarSeed={conv.id}
+              avatarInitials={previewInitials(conv)}
+              onClick={() => onOpenConversation(conv.id)}
+              t={t}
+            />
+          ))}
         </>
       )}
 

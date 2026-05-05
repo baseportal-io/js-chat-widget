@@ -11,7 +11,9 @@ import { warn } from './logger'
  *
  * The asset is the same `conversation-alert.wav` the admin panel uses
  * (converted to a 64kbps mono MP3) so visitors and admins hear the
- * same sonic identity for "new chat message".
+ * same sonic identity for "new chat message". Tone matches the
+ * "soft notification ping" family on Mixkit (mixkit.co/free-sound-effects/notification),
+ * licensed for commercial use without attribution.
  *
  * Gating intentionally lives here, not at the call site, so multiple
  * future call sites (typing nudges, reopened-conversation pings) all

@@ -22,6 +22,9 @@ export class BaseportalChat {
   private isOpenRef = { current: false }
   private hidden: boolean
   private mounted = false
+  private currentPath: string | null = null
+  private patchedHistory = false
+  private historyHandlers: { popstate: () => void; pagehide: () => void } | null = null
 
   constructor(config: BaseportalChatConfig) {
     this.config = {
@@ -59,6 +62,61 @@ export class BaseportalChat {
     }
 
     this.init()
+    this.startPageTracking()
+  }
+
+  /**
+   * Hooks `history.pushState`/`replaceState` + `popstate` to detect SPA navigations
+   * and reports each as `enter` / `leave` to the API. Used by the PAGE_VISITED
+   * outbound automation trigger. No-ops on the server (window/history undefined).
+   */
+  private startPageTracking(): void {
+    if (typeof window === 'undefined' || typeof history === 'undefined') return
+    if (this.patchedHistory) return
+    this.patchedHistory = true
+
+    const reportEnter = () => {
+      const path = window.location.pathname
+      if (path === this.currentPath) return
+      // Close previous view
+      if (this.currentPath) {
+        void this.apiClient.trackPage({ path: this.currentPath, action: 'leave' })
+      }
+      this.currentPath = path
+      void this.apiClient.trackPage({
+        path,
+        query: window.location.search.replace(/^\?/, '') || undefined,
+        referrer: document.referrer || undefined,
+        action: 'enter',
+      })
+    }
+
+    const origPush = history.pushState
+    const origReplace = history.replaceState
+    history.pushState = function (...args) {
+      const r = origPush.apply(this, args as [any, string, string?])
+      window.dispatchEvent(new Event('bp:locationchange'))
+      return r
+    }
+    history.replaceState = function (...args) {
+      const r = origReplace.apply(this, args as [any, string, string?])
+      window.dispatchEvent(new Event('bp:locationchange'))
+      return r
+    }
+
+    const popstate = () => reportEnter()
+    const pagehide = () => {
+      if (this.currentPath) {
+        void this.apiClient.trackPage({ path: this.currentPath, action: 'leave' })
+      }
+    }
+    window.addEventListener('popstate', popstate)
+    window.addEventListener('bp:locationchange', popstate)
+    window.addEventListener('pagehide', pagehide)
+    this.historyHandlers = { popstate, pagehide }
+
+    // Initial enter
+    reportEnter()
   }
 
   private async init(): Promise<void> {
@@ -253,6 +311,16 @@ export class BaseportalChat {
         metadata: visitor.metadata,
         ts: visitor.ts,
       })
+      // Notify the shell so the visitor-scoped realtime subscription
+      // can (re)connect now that the API has the contact in scope. The
+      // shell's first connect attempt — fired eagerly at mount before
+      // identify completes — silently no-ops on 401; this event is the
+      // signal that it's safe to retry. Idempotent on the listener
+      // side (VisitorRealtimeClient.connect short-circuits when
+      // already subscribed).
+      if (res.ok) {
+        this.events.emit('identify-success', undefined)
+      }
       return { ok: !!res.ok }
     } catch (e) {
       // Non-fatal: the chat keeps working even if the Client record
@@ -327,6 +395,12 @@ export class BaseportalChat {
   destroy(): void {
     this.realtimeClient.unsubscribe()
     this.events.removeAllListeners()
+    if (this.historyHandlers && typeof window !== 'undefined') {
+      window.removeEventListener('popstate', this.historyHandlers.popstate)
+      window.removeEventListener('bp:locationchange', this.historyHandlers.popstate)
+      window.removeEventListener('pagehide', this.historyHandlers.pagehide)
+      this.historyHandlers = null
+    }
     unmount()
     this.mounted = false
   }
