@@ -203,9 +203,7 @@ svg {
 .bp-wh--solid .bp-wh__sub,
 .bp-wh--gradient .bp-wh__crew-meta { color: rgba(255, 255, 255, 0.85); }
 .bp-wh--solid { background: var(--bp-primary); }
-.bp-wh--gradient {
-  background: linear-gradient(135deg, var(--bp-primary) 0%, var(--bp-primary-700) 60%, #11297d 100%);
-}
+.bp-wh--gradient { background: var(--bp-primary); }
 .bp-wh--light {
   background: #fff;
   color: var(--bp-text);
