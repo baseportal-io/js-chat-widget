@@ -7,6 +7,7 @@ import type { ChannelInfo, Message, VisitorData } from '../api/types'
 import type { RealtimeClient } from '../realtime/ably-client'
 import {
   VisitorRealtimeClient,
+  type VisitorModalShowPayload,
   type VisitorNotificationPayload,
 } from '../realtime/visitor-realtime-client'
 import type { EventEmitter } from '../utils/events'
@@ -19,7 +20,9 @@ import {
   notificationToPreview,
   type PendingPreview,
 } from './components/FloatingPreview'
+import { VisitorModal } from './components/VisitorModal'
 import type { Translations } from './i18n'
+import { ModalManager, type QueuedModal } from './managers/modal-manager'
 
 // Hard ceiling on stacked preview cards. The FloatingPreview only
 // renders the top N anyway, but keeping the array unbounded would let
@@ -66,7 +69,9 @@ export function App({
   // into the conversation they came from (preview click). Read once on
   // remount; not used to track the currently-viewed conversation.
   const [initialConvId, setInitialConvId] = useState<string | null>(null)
+  const [activeModal, setActiveModal] = useState<QueuedModal | null>(null)
   const visitorRealtimeRef = useRef<VisitorRealtimeClient | null>(null)
+  const modalManagerRef = useRef<ModalManager | null>(null)
 
   // Refs that mirror the latest state so handlers attached once at
   // mount can read fresh values without re-creating the Ably
@@ -185,6 +190,9 @@ export function App({
     visitorRealtimeRef.current = client
 
     const handlers = {
+      onModalShow: (payload: VisitorModalShowPayload) => {
+        modalManagerRef.current?.enqueue(payload)
+      },
       onNotification: (payload: VisitorNotificationPayload) => {
         // Suppress preview / unread-bump when the visitor is already
         // viewing this exact conversation — the per-conversation
@@ -228,11 +236,32 @@ export function App({
 
     void client.connect(handlers)
 
+    // Drain offline-queued chat notifications: when admin sends a
+    // campaign / automation / direct message while the visitor is
+    // offline, the realtime publish on the visitor channel is lost
+    // (Ably doesn't replay history). The drain endpoint returns the
+    // single most recent unseen message + a count, then marks all of
+    // them as delivered so subsequent boots don't re-chime. We feed
+    // the synthesized payload through the same `onNotification`
+    // handler so the UI is byte-identical to a live receive.
+    const drainNotifications = async () => {
+      try {
+        const result = await apiClient.getPendingNotifications()
+        if (result.count > 0 && result.latest) {
+          handlers.onNotification(result.latest)
+        }
+      } catch {
+        // best-effort — chat keeps working without the boot chime.
+      }
+    }
+    void drainNotifications()
+
     // Retry once identify completes server-side. `connect` is
     // idempotent — short-circuits when an Ably subscription is
     // already live, so safe to invoke on the happy path too.
     const onIdentified = () => {
       void client.connect(handlers)
+      void drainNotifications()
     }
     events.on('identify-success', onIdentified)
 
@@ -242,6 +271,81 @@ export function App({
       visitorRealtimeRef.current = null
     }
   }, [apiClient, events, isOpenRef])
+
+  // Modal manager: queues incoming visitor_modal_show payloads from
+  // the realtime client + the REST drain on connect, evaluates the
+  // queue against the current pathname (SPA-aware), and surfaces one
+  // modal at a time. The handler closure also wires the lifecycle
+  // postbacks back to the API for analytics + capping.
+  useEffect(() => {
+    const manager = new ModalManager({
+      onShowModal: (item) => {
+        setActiveModal(item)
+        // Fire-and-forget — we tell the server "this modal hit screen"
+        // so the frequency cap counts this visit and the admin
+        // dashboard reflects the impression. Failure here only loses
+        // analytics; the visitor still sees the modal.
+        void apiClient.postModalEvent(item.deliveryId, 'shown')
+      },
+      onActivePath: () => {
+        // hook for future: could trackPage from here too if useful.
+      },
+    })
+    manager.connect()
+    modalManagerRef.current = manager
+
+    // Initial drain: pulls anything queued while the visitor was
+    // offline. Identify-success retriggers it so a fresh sign-in
+    // doesn't miss pending modals that landed before identity was
+    // available.
+    const drainPending = async () => {
+      try {
+        const result = await apiClient.getPendingModals()
+        for (const d of result.deliveries) {
+          manager.enqueue({
+            text: 'visitor_modal_show',
+            deliveryId: d.deliveryId,
+            modalId: d.modal.id,
+            sourceType: d.sourceType,
+            automationId: d.automationId,
+            campaignId: d.campaignId,
+            modal: d.modal,
+          })
+        }
+      } catch {
+        // best-effort
+      }
+    }
+    void drainPending()
+
+    const onIdentified = () => void drainPending()
+    events.on('identify-success', onIdentified)
+
+    return () => {
+      events.off('identify-success', onIdentified)
+      manager.disconnect()
+      modalManagerRef.current = null
+    }
+  }, [apiClient, events])
+
+  const handleModalDismiss = useCallback(() => {
+    if (!activeModal) return
+    void apiClient.postModalEvent(activeModal.deliveryId, 'dismissed')
+    modalManagerRef.current?.markDismissed(activeModal.deliveryId)
+    setActiveModal(null)
+  }, [activeModal, apiClient])
+
+  // Permanent opt-out: visitor clicked "Não ver mais". The server flips
+  // `permanently_dismissed=true` on the delivery row, which the
+  // canDeliver gate reads to refuse every future delivery of this modal
+  // to this visitor. Treated as a regular dismiss for the manager —
+  // queue gets the slot back for the next page nav.
+  const handleModalOptOut = useCallback(() => {
+    if (!activeModal) return
+    void apiClient.postModalEvent(activeModal.deliveryId, 'opt_out')
+    modalManagerRef.current?.markDismissed(activeModal.deliveryId)
+    setActiveModal(null)
+  }, [activeModal, apiClient])
 
   const handleToggle = () => {
     const next = !isOpen
@@ -305,6 +409,13 @@ export function App({
           onClose={handleClose}
           t={t}
           initialConversationId={initialConvId}
+        />
+      )}
+      {activeModal && !isHidden && (
+        <VisitorModal
+          modal={activeModal.modal}
+          onDismiss={handleModalDismiss}
+          onOptOut={handleModalOptOut}
         />
       )}
     </>

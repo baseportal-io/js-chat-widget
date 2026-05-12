@@ -25,8 +25,66 @@ export interface VisitorNotificationPayload {
   campaignId: string | null
 }
 
+export interface ModalPayload {
+  id: string
+  size: 'small' | 'medium' | 'large' | 'custom'
+  customWidth: string | null
+  customMaxHeight: string | null
+  /**
+   * TipTap-rendered HTML body. Images are embedded inline by the
+   * builder (uploaded via the file system + a signed URL stamped
+   * into the `<img src>`), so the modal does not carry separate
+   * hero-image fields.
+   */
+  content: string | null
+  mobileContent: string | null
+  includePaths: string[]
+  excludePaths: string[]
+  /**
+   * Display-mode selector that drives the widget UX:
+   *   - `until_dismissed` adds a "Não ver mais" link the visitor can
+   *     click to permanently opt out of this modal.
+   *   - the other modes hide that link (server enforces caps).
+   */
+  displayMode: 'always' | 'once' | 'until_dismissed' | 'limited'
+  /**
+   * Inner-card framing — each key is optional; the renderer falls
+   * back to defaults when absent. `null` here means "no frame config
+   * persisted" → the renderer applies its full default style.
+   *
+   * `backgroundImageUrl` is resolved server-side at delivery time
+   * (see `serializeModalForVisitor` in the API) — the widget receives
+   * a fresh signed URL ready to drop into a CSS `url(...)` so legacy
+   * deliveries don't break when the original signed link expires.
+   */
+  frameConfig: {
+    backgroundColor?: string
+    borderRadius?: number
+    borderColor?: string | null
+    borderWidth?: number
+    padding?: number
+    backgroundImageUrl?: string | null
+    /** Mobile-only override; the renderer falls back to
+     *  `backgroundImageUrl` when null. */
+    mobileBackgroundImageUrl?: string | null
+  } | null
+}
+
+export interface VisitorModalShowPayload {
+  text: 'visitor_modal_show'
+  deliveryId: string
+  modalId: string
+  sourceType: 'automation' | 'campaign' | 'manual'
+  automationId: string | null
+  campaignId: string | null
+  modal: ModalPayload
+}
+
 export interface VisitorRealtimeHandlers {
   onNotification: (payload: VisitorNotificationPayload) => void
+  // Optional so existing call-sites (older host pages bundled with an
+  // older widget) compile without forcing every consumer to migrate at once.
+  onModalShow?: (payload: VisitorModalShowPayload) => void
 }
 
 // Hard caps the widget enforces on every visitor-channel publish.
@@ -102,6 +160,114 @@ function normalizeNotification(raw: unknown): VisitorNotificationPayload | null 
     source: trimToOptionalString(r.source, 64),
     automationId: trimToOptionalString(r.automationId, UUID_MAX_LENGTH),
     campaignId: trimToOptionalString(r.campaignId, UUID_MAX_LENGTH),
+  }
+}
+
+// Bound the modal HTML payload so a forged publish can't smuggle a
+// 5MB body through the realtime channel into the widget's render
+// path. The admin editor's own size limits are well below this; the
+// cap is purely defensive against a malicious / forged sender.
+const MODAL_HTML_MAX = 64_000
+
+function normalizeModalShow(raw: unknown): VisitorModalShowPayload | null {
+  if (!raw || typeof raw !== 'object') return null
+  const r = raw as Record<string, unknown>
+  if (r.text !== 'visitor_modal_show') return null
+
+  const deliveryId = trimToString(r.deliveryId, UUID_MAX_LENGTH)
+  const modalId = trimToString(r.modalId, UUID_MAX_LENGTH)
+  if (!deliveryId || !modalId) return null
+
+  const m = (r.modal && typeof r.modal === 'object' ? (r.modal as Record<string, unknown>) : null)
+  if (!m) return null
+
+  const sizeRaw = trimToOptionalString(m.size, 16) ?? 'medium'
+  const size = (['small', 'medium', 'large', 'custom'] as const).includes(sizeRaw as never)
+    ? (sizeRaw as 'small' | 'medium' | 'large' | 'custom')
+    : 'medium'
+
+  const includePaths = Array.isArray(m.includePaths)
+    ? (m.includePaths as unknown[])
+        .map((p) => trimToString(p, 255))
+        .filter((p): p is string => !!p)
+        .slice(0, 50)
+    : []
+  const excludePaths = Array.isArray(m.excludePaths)
+    ? (m.excludePaths as unknown[])
+        .map((p) => trimToString(p, 255))
+        .filter((p): p is string => !!p)
+        .slice(0, 50)
+    : []
+
+  const sourceTypeRaw = trimToOptionalString(r.sourceType, 16) ?? 'manual'
+  const sourceType = (['automation', 'campaign', 'manual'] as const).includes(
+    sourceTypeRaw as never
+  )
+    ? (sourceTypeRaw as 'automation' | 'campaign' | 'manual')
+    : 'manual'
+
+  const displayModeRaw = trimToOptionalString(m.displayMode, 32) ?? 'always'
+  const displayMode = (
+    ['always', 'once', 'until_dismissed', 'limited'] as const
+  ).includes(displayModeRaw as never)
+    ? (displayModeRaw as 'always' | 'once' | 'until_dismissed' | 'limited')
+    : 'always'
+
+  // Frame config — small object of optional styling tokens. Validated
+  // light because the keys are CSS values and overspecifying breaks
+  // forward-compat. Numbers clamped to a sane range so a malformed
+  // publish can't paint a 99999px-radius card. Colors stay strings
+  // (hex / rgb() / `transparent`) and only have a length cap to keep
+  // the payload tight.
+  const frameConfig = ((): ModalPayload['frameConfig'] => {
+    const fc = m.frameConfig
+    if (!fc || typeof fc !== 'object') return null
+    const f = fc as Record<string, unknown>
+    const clamp = (n: number, min: number, max: number) =>
+      Math.max(min, Math.min(max, n))
+    const out: NonNullable<ModalPayload['frameConfig']> = {}
+    const bg = trimToOptionalString(f.backgroundColor, 64)
+    if (bg) out.backgroundColor = bg
+    const bc = trimToOptionalString(f.borderColor, 64)
+    if (bc !== undefined) out.borderColor = bc
+    if (typeof f.borderRadius === 'number') {
+      out.borderRadius = clamp(f.borderRadius, 0, 64)
+    }
+    if (typeof f.borderWidth === 'number') {
+      out.borderWidth = clamp(f.borderWidth, 0, 16)
+    }
+    if (typeof f.padding === 'number') {
+      out.padding = clamp(f.padding, 0, 64)
+    }
+    // Cap at 4 KB so a forged publish can't smuggle a giant string
+    // into the visitor channel; legitimate signed-URLs come well
+    // under that.
+    const bgImage = trimToOptionalString(f.backgroundImageUrl, 4096)
+    if (bgImage) out.backgroundImageUrl = bgImage
+    const mobileBgImage = trimToOptionalString(f.mobileBackgroundImageUrl, 4096)
+    if (mobileBgImage) out.mobileBackgroundImageUrl = mobileBgImage
+    return Object.keys(out).length > 0 ? out : null
+  })()
+
+  return {
+    text: 'visitor_modal_show',
+    deliveryId,
+    modalId,
+    sourceType,
+    automationId: trimToOptionalString(r.automationId, UUID_MAX_LENGTH),
+    campaignId: trimToOptionalString(r.campaignId, UUID_MAX_LENGTH),
+    modal: {
+      id: modalId,
+      size,
+      customWidth: trimToOptionalString(m.customWidth, 32),
+      customMaxHeight: trimToOptionalString(m.customMaxHeight, 32),
+      content: trimToOptionalString(m.content, MODAL_HTML_MAX),
+      mobileContent: trimToOptionalString(m.mobileContent, MODAL_HTML_MAX),
+      includePaths,
+      excludePaths,
+      displayMode,
+      frameConfig,
+    },
   }
 }
 
@@ -207,6 +373,18 @@ export class VisitorRealtimeClient {
         try {
           const raw =
             typeof msg.data === 'string' ? JSON.parse(msg.data) : msg.data
+          // The visitor channel multiplexes notification kinds via the
+          // `text` discriminator: chat messages use
+          // `new_message_notification`, modals use `visitor_modal_show`.
+          // Route by `text` so a future kind doesn't accidentally hit
+          // the floating-preview path.
+          if (raw && typeof raw === 'object' && (raw as Record<string, unknown>).text === 'visitor_modal_show') {
+            const modal = normalizeModalShow(raw)
+            if (modal && this.handlers.onModalShow) {
+              this.handlers.onModalShow(modal)
+            }
+            return
+          }
           const payload = normalizeNotification(raw)
           if (payload) {
             this.handlers.onNotification(payload)

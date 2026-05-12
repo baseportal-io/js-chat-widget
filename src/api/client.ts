@@ -236,4 +236,98 @@ export class ApiClient {
       // best-effort
     }
   }
+
+  /**
+   * Drain pending modal deliveries. Called on widget connect (and after
+   * reconnect) so a modal queued while the visitor was offline still
+   * gets shown. Backend filters by the verified visitor identity; we
+   * ship up nothing extra. Returns `[]` when not identified.
+   */
+  async getPendingModals(): Promise<{
+    deliveries: Array<{
+      deliveryId: string;
+      sourceType: "automation" | "campaign" | "manual";
+      automationId: string | null;
+      campaignId: string | null;
+      modal: {
+        id: string;
+        size: "small" | "medium" | "large" | "custom";
+        customWidth: string | null;
+        customMaxHeight: string | null;
+        content: string | null;
+        mobileContent: string | null;
+        includePaths: string[];
+        excludePaths: string[];
+        displayMode: "always" | "once" | "until_dismissed" | "limited";
+        frameConfig: {
+          backgroundColor?: string;
+          borderRadius?: number;
+          borderColor?: string | null;
+          borderWidth?: number;
+          padding?: number;
+          backgroundImageUrl?: string | null;
+          mobileBackgroundImageUrl?: string | null;
+        } | null;
+      };
+    }>;
+  }> {
+    try {
+      return await this.request("GET", "/pending-modals");
+    } catch {
+      return { deliveries: [] };
+    }
+  }
+
+  /**
+   * Lifecycle event postback. Best-effort — a network error here only
+   * loses analytics fidelity, not correctness (the visitor still sees
+   * the modal exactly once because the row stays `pending` and the
+   * frequency cap counts only `shown` rows; a `shown` event that never
+   * lands just means the row remains `pending` and could redeliver,
+   * which is the safer side to err on UX-wise).
+   */
+  async postModalEvent(
+    deliveryId: string,
+    event: "shown" | "dismissed" | "clicked" | "opt_out",
+  ): Promise<void> {
+    try {
+      await this.request(
+        "POST",
+        `/modal-deliveries/${encodeURIComponent(deliveryId)}/event`,
+        { event },
+      );
+    } catch {
+      // best-effort
+    }
+  }
+
+  /**
+   * Drain undelivered chat-side notifications (admin/automation/
+   * campaign messages that were published while the visitor was
+   * offline). Returns the latest one + a count; the server marks all
+   * of them as delivered so the next call returns `count: 0` until
+   * something new arrives. Best-effort — silent fallback on error
+   * since this only feeds the boot notification UX.
+   */
+  async getPendingNotifications(): Promise<{
+    count: number;
+    latest: {
+      text: "new_message_notification";
+      conversationId: string;
+      messageId: string;
+      preview: string;
+      previewImageUrl: string | null;
+      from: { name: string | null; avatarUrl: string | null };
+      createdAt: string;
+      source: string | null;
+      automationId: string | null;
+      campaignId: string | null;
+    } | null;
+  }> {
+    try {
+      return await this.request("GET", "/pending-notifications");
+    } catch {
+      return { count: 0, latest: null };
+    }
+  }
 }
