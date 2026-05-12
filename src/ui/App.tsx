@@ -347,6 +347,17 @@ export function App({
     setActiveModal(null)
   }, [activeModal, apiClient])
 
+  // A modal component configured with the "open chat" click action.
+  // Dismissal is handled by VisitorModal itself; we just open the
+  // chat panel exactly like the SDK's external `open()` does — the
+  // internal `_open` event drives the open state, `open` notifies host
+  // listeners. Emitting only `open` would notify listeners without
+  // actually showing the window.
+  const handleModalOpenChat = useCallback(() => {
+    events.emit('_open')
+    events.emit('open')
+  }, [events])
+
   const handleToggle = () => {
     const next = !isOpen
     setIsOpenState(next)
@@ -416,6 +427,7 @@ export function App({
           modal={activeModal.modal}
           onDismiss={handleModalDismiss}
           onOptOut={handleModalOptOut}
+          onOpenChat={handleModalOpenChat}
         />
       )}
     </>

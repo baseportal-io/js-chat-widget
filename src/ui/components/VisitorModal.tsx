@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'preact/hooks'
 
 import type { ModalPayload } from '../../realtime/visitor-realtime-client'
-import { sanitizeModalHtml } from '../../utils/html-sanitizer'
+import { sanitizeModalHtml, sanitizeUrl } from '../../utils/html-sanitizer'
 
 const MOBILE_BREAKPOINT_PX = 768
 
@@ -78,6 +78,12 @@ interface VisitorModalProps {
    * blocking every future delivery of this modal to this visitor.
    */
   onOptOut?: () => void
+  /**
+   * Called when the visitor clicks a content element configured with
+   * the "open chat" action (`data-link-type="chat"`). The host opens
+   * its chat panel; the modal dismisses itself afterwards.
+   */
+  onOpenChat?: () => void
   // Preview mode renders inline (no fixed positioning, no backdrop) so
   // the admin editor can embed the same component inside an iframe and
   // get a faithful render. Hidden from postbacks too — preview should
@@ -114,6 +120,7 @@ export function VisitorModal({
   modal,
   onDismiss,
   onOptOut,
+  onOpenChat,
   previewMode,
   forceVariant,
 }: VisitorModalProps) {
@@ -325,6 +332,45 @@ export function VisitorModal({
     if (e.target === e.currentTarget) onDismiss()
   }
 
+  // Delegated click handler for the rendered modal HTML. Components
+  // configured with a click action carry `data-link-type` /
+  // `data-link-href` / `data-link-target` (or, for buttons/text, a
+  // real `<a href target>`):
+  //   - `chat`           → open the widget's chat panel + dismiss.
+  //   - `tel` / `mailto` → `data-link-href` holds the bare value; we
+  //                        prefix the scheme and navigate.
+  //   - `url` (or any non-`<a>` with `data-link-href`) → intercept and
+  //                        navigate honouring the target.
+  // Plain `<a href target>` (button/text URL links) are left to the
+  // browser — no `data-link-href`, so they fall through.
+  const onContentClick = (e: MouseEvent) => {
+    if (previewMode) return
+    const start = e.target as HTMLElement | null
+    const el = start?.closest<HTMLElement>('[data-link-type], [data-link-href]')
+    if (!el) return
+    const linkType = el.getAttribute('data-link-type')
+    if (linkType === 'chat') {
+      e.preventDefault()
+      onOpenChat?.()
+      onDismiss()
+      return
+    }
+    const rawHref = el.getAttribute('data-link-href')
+    if (!rawHref) return // plain <a href> — let the browser handle it
+    e.preventDefault()
+    const target = el.getAttribute('data-link-target') === '_blank' ? '_blank' : '_self'
+    const candidate =
+      linkType === 'tel'
+        ? `tel:${rawHref}`
+        : linkType === 'mailto'
+          ? `mailto:${rawHref}`
+          : rawHref
+    const safe = sanitizeUrl(candidate)
+    if (!safe) return
+    if (target === '_blank') window.open(safe, '_blank', 'noopener,noreferrer')
+    else window.location.href = safe
+  }
+
   const hasContent = html.trim().length > 0
 
   return (
@@ -339,10 +385,15 @@ export function VisitorModal({
           ×
         </button>
         <div style={contentScrollStyle}>
+          {/* Elements with a configured click action read as clickable.
+              `[data-link-type]` only ever appears in editor-rendered
+              modal content, so a global rule is safe. */}
+          <style>{`[data-link-type]{cursor:pointer}`}</style>
           {hasContent ? (
             <div
               // eslint-disable-next-line react/no-danger
               dangerouslySetInnerHTML={{ __html: html }}
+              onClick={onContentClick}
               style={{ color: '#0f172a', fontSize: '15px', lineHeight: '1.6' }}
             />
           ) : !frameBgImage || frameBgImage === 'none' ? (

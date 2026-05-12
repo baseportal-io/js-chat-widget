@@ -103,25 +103,63 @@ const ALLOWED_ATTRS_BY_TAG: Record<string, Set<string>> = {
   // order `target="_blank" rel="opener"` would let the second
   // assignment overwrite the safe rel value, restoring `window.opener`
   // control to the destination page.
-  a: new Set(['href', 'target', 'style']),
-  img: new Set(['src', 'alt', 'title', 'width', 'height', 'style']),
+  // `data-link-*` is the content-editor's "click action" model
+  // (buttons/text use real `href`/`target`; sections/images can't, so
+  // they carry the URL on `data-link-href` + `data-link-target`, and
+  // `data-link-type="chat"` signals "open the widget chat panel").
+  a: new Set([
+    'href',
+    'target',
+    'style',
+    'data-link-type',
+    'data-link-href',
+    'data-link-target',
+  ]),
+  img: new Set([
+    'src',
+    'alt',
+    'title',
+    'width',
+    'height',
+    'style',
+    'data-link-type',
+    'data-link-href',
+    'data-link-target',
+  ]),
   button: new Set(['data-action', 'data-href', 'style']),
-  span: new Set(['style']),
-  div: new Set(['style', 'data-section', 'data-bg']),
-  p: new Set(['style']),
-  h1: new Set(['style']),
-  h2: new Set(['style']),
-  h3: new Set(['style']),
-  h4: new Set(['style']),
-  h5: new Set(['style']),
-  h6: new Set(['style']),
+  span: new Set(['style', 'data-link-type', 'data-link-href', 'data-link-target']),
+  div: new Set([
+    'style',
+    'data-section',
+    'data-bg',
+    'data-link-type',
+    'data-link-href',
+    'data-link-target',
+  ]),
+  p: new Set(['style', 'data-link-type', 'data-link-href', 'data-link-target']),
+  h1: new Set(['style', 'data-link-type', 'data-link-href', 'data-link-target']),
+  h2: new Set(['style', 'data-link-type', 'data-link-href', 'data-link-target']),
+  h3: new Set(['style', 'data-link-type', 'data-link-href', 'data-link-target']),
+  h4: new Set(['style', 'data-link-type', 'data-link-href', 'data-link-target']),
+  h5: new Set(['style', 'data-link-type', 'data-link-href', 'data-link-target']),
+  h6: new Set(['style', 'data-link-type', 'data-link-href', 'data-link-target']),
   blockquote: new Set(['style']),
   ul: new Set(['style']),
   ol: new Set(['style']),
   li: new Set(['style']),
-  figure: new Set(['style']),
+  figure: new Set([
+    'style',
+    'data-link-type',
+    'data-link-href',
+    'data-link-target',
+  ]),
   figcaption: new Set(['style']),
 }
+
+// Accepted values for `data-link-type` — anything else is dropped (so
+// a hand-crafted `data-link-type="javascript"` can't ride through and
+// confuse the widget's click handler).
+const ALLOWED_LINK_TYPES = new Set(['url', 'chat', 'tel', 'mailto'])
 
 // CSS properties allowed inside `style="..."`. Layout / typography
 // only — anything with side-effects (position, transform, animation,
@@ -164,7 +202,7 @@ const ALLOWED_STYLE_PROPS = new Set([
   'flex',
 ])
 
-function sanitizeUrl(value: string): string | null {
+export function sanitizeUrl(value: string): string | null {
   const trimmed = value.trim()
   if (!trimmed) return null
   // Block protocol-relative URLs (`//evil.com`) — they inherit the
@@ -248,18 +286,31 @@ function sanitizeNode(node: Node, doc: Document): Node | null {
     if (!allowedAttrs.has(name)) continue
     const raw = attr.value
 
-    if (name === 'href' || name === 'src' || name === 'data-href') {
-      const safe = sanitizeUrl(raw)
+    if (name === 'href' || name === 'src' || name === 'data-href' || name === 'data-link-href') {
+      // tel:/mailto: aren't in the URL allowlist but the editor's
+      // image-link feature stores the bare number/address here and the
+      // widget's click handler prefixes the scheme — let the bare
+      // value through (it's not a navigable URL on its own).
+      const isBare = !/[:/]/.test(raw)
+      const safe = isBare ? raw : sanitizeUrl(raw)
       if (!safe) continue
       clean.setAttribute(name, safe)
     } else if (name === 'style') {
       const safe = sanitizeStyle(raw)
       if (safe) clean.setAttribute('style', safe)
-    } else if (name === 'target') {
-      // only `_blank` is useful; coerce anything else to `_blank` and
-      // always pair with `rel=noopener noreferrer` to avoid window.opener leaks.
-      clean.setAttribute('target', '_blank')
-      clean.setAttribute('rel', 'noopener noreferrer')
+    } else if (name === 'target' || name === 'data-link-target') {
+      // `_self` is safe (no new window, no window.opener); keep it.
+      // Anything else (including `_blank`) is normalised to `_blank`,
+      // which on a real anchor must pair with `rel=noopener noreferrer`
+      // to avoid reverse-tab-nabbing.
+      const value = raw === '_self' ? '_self' : '_blank'
+      clean.setAttribute(name, value)
+      if (name === 'target' && value === '_blank') {
+        clean.setAttribute('rel', 'noopener noreferrer')
+      }
+    } else if (name === 'data-link-type') {
+      if (ALLOWED_LINK_TYPES.has(raw)) clean.setAttribute(name, raw)
+      // unrecognised → drop (treat as "no link")
     } else {
       clean.setAttribute(name, raw)
     }
@@ -268,6 +319,11 @@ function sanitizeNode(node: Node, doc: Document): Node | null {
   // a[href][target=_blank] without rel — backstop the rel pairing.
   if (tag === 'a' && clean.getAttribute('target') === '_blank' && !clean.hasAttribute('rel')) {
     clean.setAttribute('rel', 'noopener noreferrer')
+  }
+  // A `data-link-target` only makes sense alongside a `data-link-href`
+  // (sections / images carry the URL there). Drop a dangling one.
+  if (clean.hasAttribute('data-link-target') && !clean.hasAttribute('data-link-href')) {
+    clean.removeAttribute('data-link-target')
   }
 
   for (const child of Array.from(el.childNodes)) {
